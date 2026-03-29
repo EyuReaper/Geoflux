@@ -1,0 +1,39 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  background-color: #0a0a0a;
+  color: white;
+}
+
+body {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #0a0a0a;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom range input styling for a premium look */
+input[type='range'] {
+  @apply h-1.5 rounded-lg bg-white/10 appearance-none cursor-pointer transition-all;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  @apply appearance-none w-4 h-4 rounded-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)] transition-transform hover:scale-125;
+}
+
+/* Hide MapLibre logo for cleaner UI (optional, check license) */
+.maplibregl-ctrl-attrib {
+  @apply !bg-black/20 !backdrop-blur-md !border-white/10 !text-white/40;
+}
