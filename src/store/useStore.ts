@@ -1,10 +1,13 @@
 import { create } from 'zustand'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping } from '../types/index'
 
 interface GeoFluxState {
   // Data
   data: DataPoint[]
   filteredData: DataPoint[]
+  rawData: any[]
+  availableFields: string[]
+  fieldMapping: FieldMapping
   isLoading: boolean
   error: string | null
   
@@ -19,9 +22,12 @@ interface GeoFluxState {
   mapStyle: MapStyle
   mapStyleType: 'dark' | 'light'
   filters: FilterState
+  timeline: TimelineState
   
   // Actions
   setData: (data: DataPoint[]) => void
+  setRawData: (rawData: any[]) => void
+  setFieldMapping: (mapping: Partial<FieldMapping>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   setMode: (mode: VisualizationMode) => void
@@ -29,16 +35,31 @@ interface GeoFluxState {
   updateMapStyle: (style: Partial<MapStyle>) => void
   setMapStyleType: (type: 'dark' | 'light') => void
   setFilters: (filters: Partial<FilterState>) => void
+  setTimeline: (timeline: Partial<TimelineState>) => void
   toggleSidebar: () => void
   toggleRightPanel: () => void
   toggleLive: () => void
+  togglePlayback: () => void
   loadDemoData: () => void
   updateDataPoints: () => void
+  tickTimeline: () => void
+  applyMapping: () => void
+}
+
+const defaultMapping: FieldMapping = {
+  lat: '',
+  lng: '',
+  value: '',
+  category: '',
+  timestamp: ''
 }
 
 export const useStore = create<GeoFluxState>((set, get) => ({
   data: [],
   filteredData: [],
+  rawData: [],
+  availableFields: [],
+  fieldMapping: defaultMapping,
   isLoading: false,
   error: null,
   mode: 'markers',
@@ -71,10 +92,73 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     categories: [],
     searchQuery: '',
   },
+
+  timeline: {
+    currentTime: 0,
+    startTime: 0,
+    endTime: 100,
+    isPlaying: false,
+    speed: 1,
+  },
   
+  setRawData: (rawData) => {
+    if (rawData.length === 0) {
+      set({ rawData: [], availableFields: [], fieldMapping: defaultMapping })
+      return
+    }
+    
+    const fields = Object.keys(rawData[0])
+    
+    // Auto-detect fields
+    const mapping: FieldMapping = {
+      lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
+      lng: fields.find(f => /lng|long|longitude/i.test(f)) || fields[1] || '',
+      value: fields.find(f => /val|count|mag|amount/i.test(f)) || '',
+      category: fields.find(f => /cat|type|class/i.test(f)) || '',
+      timestamp: fields.find(f => /time|date/i.test(f)) || ''
+    }
+    
+    set({ rawData, availableFields: fields, fieldMapping: mapping })
+    get().applyMapping()
+  },
+
+  setFieldMapping: (newMapping) => {
+    set((state) => ({ fieldMapping: { ...state.fieldMapping, ...newMapping } }))
+    get().applyMapping()
+  },
+
+  applyMapping: () => {
+    const { rawData, fieldMapping } = get()
+    if (rawData.length === 0) return
+
+    const mappedData: DataPoint[] = rawData.map((d, i) => ({
+      id: i,
+      lat: Number(d[fieldMapping.lat] || 0),
+      lng: Number(d[fieldMapping.lng] || 0),
+      value: fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1,
+      category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
+      timestamp: fieldMapping.timestamp ? d[fieldMapping.timestamp] : undefined,
+      metadata: d
+    }))
+
+    get().setData(mappedData)
+  },
+
   setData: (data) => {
-    set({ data, isLoading: false })
-    get().setFilters({}) // Trigger filtering
+    const times = data.map(d => typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()).filter(t => t > 0)
+    
+    if (times.length > 0) {
+      const min = Math.min(...times)
+      const max = Math.max(...times)
+      set({ 
+        data, 
+        isLoading: false,
+        timeline: { ...get().timeline, startTime: min, endTime: max, currentTime: min }
+      })
+    } else {
+      set({ data, isLoading: false, timeline: { ...get().timeline, startTime: 0, endTime: 0, currentTime: 0 } })
+    }
+    get().setFilters({}) 
   },
   
   setLoading: (isLoading) => set({ isLoading }),
@@ -99,10 +183,37 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       const matchesSearch = !filters.searchQuery || 
         JSON.stringify(d.metadata || {}).toLowerCase().includes(filters.searchQuery.toLowerCase())
       
-      return matchesValue && matchesCategory && matchesSearch
+      let matchesTime = true
+      if (state.timeline.startTime !== state.timeline.endTime) {
+        const dTime = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()
+        if (dTime > 0) {
+          matchesTime = dTime <= state.timeline.currentTime
+        }
+      }
+      
+      return matchesValue && matchesCategory && matchesSearch && matchesTime
     })
     
     set({ filters, filteredData })
+  },
+
+  setTimeline: (newTimeline) => {
+    set((state) => ({ timeline: { ...state.timeline, ...newTimeline } }))
+    get().setFilters({})
+  },
+
+  togglePlayback: () => set((state) => ({ 
+    timeline: { ...state.timeline, isPlaying: !state.isPlaying } 
+  })),
+
+  tickTimeline: () => {
+    const { timeline, setTimeline } = get()
+    if (!timeline.isPlaying) return
+
+    let nextTime = timeline.currentTime + (timeline.endTime - timeline.startTime) / 100 * timeline.speed
+    if (nextTime > timeline.endTime) nextTime = timeline.startTime
+    
+    setTimeline({ currentTime: nextTime })
   },
   
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
@@ -116,20 +227,29 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       value: Math.max(0, Math.min(100, (d.value || 0) + (Math.random() - 0.5) * 10))
     }))
     set({ data: newData })
-    state.setFilters({}) // Re-apply filters to new data
+    state.setFilters({})
   },
   
   loadDemoData: () => {
-    const demoPoints: DataPoint[] = Array.from({ length: 1000 }).map((_, i) => ({
-      id: i,
+    const now = Date.now()
+    const day = 24 * 60 * 60 * 1000
+    const demoPoints: any[] = Array.from({ length: 1000 }).map((_, i) => ({
       lat: (Math.random() - 0.5) * 140,
       lng: (Math.random() - 0.5) * 360,
-      value: Math.random() * 100,
-      category: ['A', 'B', 'C'][Math.floor(Math.random() * 3)],
-      metadata: { city: 'Demo City ' + i }
+      intensity: Math.random() * 100,
+      group: ['A', 'B', 'C'][Math.floor(Math.random() * 3)],
+      recorded_at: now - (Math.random() * 7 * day),
+      city: 'Demo City ' + i
     }))
-    const { setData } = get()
-    setData(demoPoints)
+    
+    set({ fieldMapping: {
+      lat: 'lat',
+      lng: 'lng',
+      value: 'intensity',
+      category: 'group',
+      timestamp: 'recorded_at'
+    }})
+    get().setRawData(demoPoints)
     set({ mode: 'markers' })
   }
 }))

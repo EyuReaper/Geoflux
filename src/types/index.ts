@@ -17,6 +17,22 @@ export type FilterState = {
   searchQuery: string;
 };
 
+export type TimelineState = {
+  currentTime: number;
+  startTime: number;
+  endTime: number;
+  isPlaying: boolean;
+  speed: number;
+};
+
+export type FieldMapping = {
+  lat: string;
+  lng: string;
+  value: string;
+  category: string;
+  timestamp: string;
+};
+
 export type MapState = {
   lat: number;
   lng: number;

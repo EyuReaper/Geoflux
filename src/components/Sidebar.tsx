@@ -1,12 +1,15 @@
 import React, { useRef, useMemo } from 'react'
-import { Upload, X, CheckCircle2, Search, Filter } from 'lucide-react'
+import { Upload, X, CheckCircle2, Search, Filter, Settings2 } from 'lucide-react'
 import Papa from 'papaparse'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
-import type { DataPoint } from '../types'
+import type { FieldMapping } from '../types'
 
 const Sidebar = () => {
-  const { isSidebarOpen, setData, setLoading, data, filters, setFilters } = useStore()
+  const { 
+    isSidebarOpen, setRawData, data, filters, setFilters, 
+    availableFields, fieldMapping, setFieldMapping 
+  } = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const categories = useMemo(() => {
@@ -19,7 +22,6 @@ const Sidebar = () => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setLoading(true)
     const reader = new FileReader()
 
     if (file.name.endsWith('.json')) {
@@ -27,14 +29,7 @@ const Sidebar = () => {
         try {
           const json = JSON.parse(event.target?.result as string)
           const rawData = Array.isArray(json) ? json : [json]
-          setData(rawData.map((d: Record<string, unknown>, i: number) => ({
-            id: i,
-            lat: Number(d.lat || d.latitude || 0),
-            lng: Number(d.lng || d.longitude || 0),
-            value: Number(d.value || d.mag || d.count || 0),
-            category: String(d.category || d.type || 'default'),
-            metadata: d
-          } as DataPoint)))
+          setRawData(rawData)
         } catch (err) {
           console.error("Failed to parse JSON", err)
         }
@@ -45,18 +40,27 @@ const Sidebar = () => {
         header: true,
         dynamicTyping: true,
         complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
-          setData(results.data.map((d: Record<string, unknown>, i: number) => ({
-            id: i,
-            lat: Number(d.lat || d.latitude || 0),
-            lng: Number(d.lng || d.longitude || 0),
-            value: Number(d.value || d.mag || d.count || 0),
-            category: String(d.category || d.type || 'default'),
-            metadata: d
-          } as DataPoint)))
+          setRawData(results.data)
         }
       })
     }
   }
+
+  const MappingRow = ({ label, field, value }: { label: string, field: keyof FieldMapping, value: string }) => (
+    <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-white/5 border border-white/5">
+      <span className="text-[10px] font-bold uppercase text-white/40 tracking-wider">{label}</span>
+      <select 
+        value={value}
+        onChange={(e) => setFieldMapping({ [field]: e.target.value })}
+        className="bg-transparent text-xs text-cyan-400 font-medium outline-none cursor-pointer hover:text-cyan-300 transition-colors"
+      >
+        <option value="" className="bg-black text-white">None (Default)</option>
+        {availableFields.map(f => (
+          <option key={f} value={f} className="bg-black text-white">{f}</option>
+        ))}
+      </select>
+    </div>
+  )
 
   return (
     <aside 
@@ -75,7 +79,7 @@ const Sidebar = () => {
           {data.length > 0 ? (
             <div className="bg-white/5 rounded-xl border border-white/10 p-4 relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => setData([])} className="p-1 hover:bg-white/10 rounded-md text-white/50 hover:text-white">
+                <button onClick={() => setRawData([])} className="p-1 hover:bg-white/10 rounded-md text-white/50 hover:text-white">
                   <X size={14} />
                 </button>
               </div>
@@ -116,11 +120,24 @@ const Sidebar = () => {
           <>
             <div className="space-y-4">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+                <Settings2 size={14} />
+                Field Mapping
+              </h2>
+              <div className="space-y-2">
+                <MappingRow label="Latitude" field="lat" value={fieldMapping.lat} />
+                <MappingRow label="Longitude" field="lng" value={fieldMapping.lng} />
+                <MappingRow label="Value (Intensity)" field="value" value={fieldMapping.value} />
+                <MappingRow label="Category" field="category" value={fieldMapping.category} />
+                <MappingRow label="Timestamp" field="timestamp" value={fieldMapping.timestamp} />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
                 <Filter size={14} />
                 Smart Filters
               </h2>
 
-              {/* Search */}
               <div className="relative group">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-cyan-400 transition-colors" />
                 <input 
@@ -132,7 +149,6 @@ const Sidebar = () => {
                 />
               </div>
 
-              {/* Value Range */}
               <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/5">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-bold uppercase text-white/40">Value Range</span>
@@ -156,7 +172,6 @@ const Sidebar = () => {
                 </div>
               </div>
 
-              {/* Categories */}
               {categories.length > 0 && (
                 <div className="space-y-3">
                   <span className="text-[10px] font-bold uppercase text-white/40">Categories</span>
@@ -183,20 +198,6 @@ const Sidebar = () => {
                   </div>
                 </div>
               )}
-            </div>
-
-            <div className="space-y-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">Field Mapping</h2>
-              <div className="space-y-3">
-                {['Latitude', 'Longitude', 'Value', 'Category'].map((field) => (
-                  <div key={field} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5">
-                    <span className="text-xs font-medium text-white/60">{field}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded uppercase font-bold tracking-tighter">Auto</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </>
         )}

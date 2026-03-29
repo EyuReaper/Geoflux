@@ -2,6 +2,7 @@ import Map from './components/Map'
 import Navbar from './components/Navbar'
 import Sidebar from './components/Sidebar'
 import RightPanel from './components/RightPanel'
+import Timeline from './components/Timeline'
 import { useStore } from './store/useStore'
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { cn } from './lib/utils'
@@ -64,6 +65,7 @@ function App() {
         </div>
 
         <RightPanel />
+        <Timeline />
       </main>
     </div>
   )
