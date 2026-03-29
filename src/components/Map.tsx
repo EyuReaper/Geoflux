@@ -11,8 +11,9 @@ const STYLES = {
 const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
+  const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, data, mode, mapStyle, mapStyleType } = useStore()
+  const { mapState, setMapState, filteredData: data, mode, mapStyle, mapStyleType } = useStore()
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
@@ -101,23 +102,46 @@ const Map = () => {
       }
 
       if (mapInstance.getSource('geoflux-grid')) {
-        mapInstance.addLayer({
-          id: 'geoflux-choropleth',
-          type: 'fill',
-          source: 'geoflux-grid',
-          paint: {
-            'fill-color': [
-              'interpolate', ['linear'], ['get', 'value'],
-              0, 'rgba(0,0,0,0)',
-              25, mapStyle.colorScale[0],
-              50, mapStyle.colorScale[1],
-              75, mapStyle.colorScale[2],
-              100, mapStyle.colorScale[3]
-            ],
-            'fill-opacity': mapStyle.opacity,
-            'fill-outline-color': 'rgba(255,255,255,0.1)'
-          }
-        })
+        if (mapStyle.is3D) {
+          mapInstance.addLayer({
+            id: 'geoflux-choropleth',
+            type: 'fill-extrusion',
+            source: 'geoflux-grid',
+            paint: {
+              'fill-extrusion-color': [
+                'interpolate', ['linear'], ['get', 'value'],
+                0, 'rgba(0,0,0,0)',
+                25, mapStyle.colorScale[0],
+                50, mapStyle.colorScale[1],
+                75, mapStyle.colorScale[2],
+                100, mapStyle.colorScale[3]
+              ],
+              'fill-extrusion-height': ['*', ['get', 'value'], 5000], 
+              'fill-extrusion-base': 0,
+              'fill-extrusion-opacity': mapStyle.opacity
+            }
+          })
+          mapInstance.easeTo({ pitch: 45, duration: 1000 })
+        } else {
+          mapInstance.addLayer({
+            id: 'geoflux-choropleth',
+            type: 'fill',
+            source: 'geoflux-grid',
+            paint: {
+              'fill-color': [
+                'interpolate', ['linear'], ['get', 'value'],
+                0, 'rgba(0,0,0,0)',
+                25, mapStyle.colorScale[0],
+                50, mapStyle.colorScale[1],
+                75, mapStyle.colorScale[2],
+                100, mapStyle.colorScale[3]
+              ],
+              'fill-opacity': mapStyle.opacity,
+              'fill-outline-color': 'rgba(255,255,255,0.1)'
+            }
+          })
+          mapInstance.easeTo({ pitch: 0, duration: 1000 })
+        }
       }
     }
   }, [mode, mapStyle, data])
@@ -138,6 +162,11 @@ const Map = () => {
       map.current = m
       setIsLoaded(true)
       
+      popup.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false
+      })
+      
       if (!m.getSource('geoflux-data')) {
         m.addSource('geoflux-data', {
           type: 'geojson',
@@ -153,6 +182,35 @@ const Map = () => {
       }
       
       updateLayers()
+    })
+
+    m.on('mousemove', (e) => {
+      if (!map.current || !isLoaded) return
+      
+      const features = map.current.queryRenderedFeatures(e.point, {
+        layers: ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
+      })
+
+      if (features.length > 0) {
+        map.current.getCanvas().style.cursor = 'pointer'
+        const feature = features[0]
+        const props = feature.properties
+        
+        popup.current
+          ?.setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 10px; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-family: sans-serif; min-width: 120px;">
+              <div style="font-size: 10px; opacity: 0.4; text-transform: uppercase; font-weight: bold; margin-bottom: 4px;">Value</div>
+              <div style="font-size: 14px; font-weight: bold; color: #06b6d4;">${(props.value || 0).toFixed(2)}</div>
+              ${props.category ? `<div style="font-size: 10px; margin-top: 4px; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; display: inline-block;">${props.category}</div>` : ''}
+              ${props.count ? `<div style="font-size: 9px; opacity: 0.3; margin-top: 4px;">Aggregated points: ${props.count}</div>` : ''}
+            </div>
+          `)
+          .addTo(map.current)
+      } else {
+        map.current.getCanvas().style.cursor = ''
+        popup.current?.remove()
+      }
     })
 
     m.on('styledata', () => {
@@ -177,11 +235,9 @@ const Map = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Respond to style type changes
   useEffect(() => {
     const mapInstance = map.current
     if (!mapInstance || !isLoaded) return
-
     mapInstance.setStyle(STYLES[mapStyleType])
   }, [mapStyleType, isLoaded])
 

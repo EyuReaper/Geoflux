@@ -1,13 +1,19 @@
-import React, { useRef } from 'react'
-import { Upload, X, CheckCircle2 } from 'lucide-react'
+import React, { useRef, useMemo } from 'react'
+import { Upload, X, CheckCircle2, Search, Filter } from 'lucide-react'
 import Papa from 'papaparse'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { DataPoint } from '../types'
 
 const Sidebar = () => {
-  const { isSidebarOpen, setData, setLoading, data } = useStore()
+  const { isSidebarOpen, setData, setLoading, data, filters, setFilters } = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const categories = useMemo(() => {
+    const cats = new Set<string>()
+    data.forEach(d => { if (d.category) cats.add(d.category) })
+    return Array.from(cats)
+  }, [data])
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -21,7 +27,6 @@ const Sidebar = () => {
         try {
           const json = JSON.parse(event.target?.result as string)
           const rawData = Array.isArray(json) ? json : [json]
-          // Basic mapping - in real app we would use a mapper UI
           setData(rawData.map((d: Record<string, unknown>, i: number) => ({
             id: i,
             lat: Number(d.lat || d.latitude || 0),
@@ -60,9 +65,12 @@ const Sidebar = () => {
         !isSidebarOpen && "-translate-x-full"
       )}
     >
-      <div className="p-6 space-y-6 overflow-y-auto h-full">
-        <div className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">Datasets</h2>
+      <div className="p-6 space-y-8 overflow-y-auto h-full pb-20">
+        <div className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+            <Upload size={14} />
+            Datasets
+          </h2>
           
           {data.length > 0 ? (
             <div className="bg-white/5 rounded-xl border border-white/10 p-4 relative overflow-hidden group">
@@ -105,19 +113,92 @@ const Sidebar = () => {
         </div>
 
         {data.length > 0 && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">Field Mapping</h2>
-            <div className="space-y-3">
-              {['Latitude', 'Longitude', 'Value', 'Category'].map((field) => (
-                <div key={field} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5">
-                  <span className="text-xs font-medium text-white/60">{field}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded uppercase font-bold tracking-tighter">Auto</span>
+          <>
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+                <Filter size={14} />
+                Smart Filters
+              </h2>
+
+              {/* Search */}
+              <div className="relative group">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-cyan-400 transition-colors" />
+                <input 
+                  type="text"
+                  placeholder="Search metadata..."
+                  value={filters.searchQuery}
+                  onChange={(e) => setFilters({ searchQuery: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-xs focus:outline-none focus:border-cyan-500/50 transition-all"
+                />
+              </div>
+
+              {/* Value Range */}
+              <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-bold uppercase text-white/40">Value Range</span>
+                  <span className="text-[10px] font-mono text-cyan-400">{filters.minValue} - {filters.maxValue}</span>
+                </div>
+                <div className="space-y-1">
+                  <input 
+                    type="range"
+                    min="0" max="100"
+                    value={filters.minValue}
+                    onChange={(e) => setFilters({ minValue: parseInt(e.target.value) })}
+                    className="w-full accent-cyan-500"
+                  />
+                  <input 
+                    type="range"
+                    min="0" max="100"
+                    value={filters.maxValue}
+                    onChange={(e) => setFilters({ maxValue: parseInt(e.target.value) })}
+                    className="w-full accent-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Categories */}
+              {categories.length > 0 && (
+                <div className="space-y-3">
+                  <span className="text-[10px] font-bold uppercase text-white/40">Categories</span>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => {
+                          const newCats = filters.categories.includes(cat)
+                            ? filters.categories.filter(c => c !== cat)
+                            : [...filters.categories, cat]
+                          setFilters({ categories: newCats })
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all",
+                          filters.categories.includes(cat)
+                            ? "bg-cyan-500 border-cyan-500 text-black shadow-lg shadow-cyan-500/20"
+                            : "bg-white/5 border-white/10 text-white/40 hover:text-white"
+                        )}
+                      >
+                        {cat}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
+
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40">Field Mapping</h2>
+              <div className="space-y-3">
+                {['Latitude', 'Longitude', 'Value', 'Category'].map((field) => (
+                  <div key={field} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5">
+                    <span className="text-xs font-medium text-white/60">{field}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded uppercase font-bold tracking-tighter">Auto</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
         )}
       </div>
     </aside>

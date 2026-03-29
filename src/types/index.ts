@@ -10,6 +10,13 @@ export type DataPoint = {
   metadata?: Record<string, unknown>;
 };
 
+export type FilterState = {
+  minValue: number;
+  maxValue: number;
+  categories: string[];
+  searchQuery: string;
+};
+
 export type MapState = {
   lat: number;
   lng: number;
@@ -25,4 +32,5 @@ export type MapStyle = {
   heatmapIntensity: number;
   heatmapRadius: number;
   colorScale: string[];
+  is3D: boolean;
 };

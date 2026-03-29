@@ -194,6 +194,29 @@ const RightPanel = () => {
               </>
             )}
 
+            {mode === 'choropleth' && (
+              <div className="pt-4 border-t border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-white/60 uppercase tracking-tighter">3D Extrusion</label>
+                  <button 
+                    onClick={() => updateMapStyle({ is3D: !mapStyle.is3D })}
+                    className={cn(
+                      "w-10 h-5 rounded-full relative transition-colors",
+                      mapStyle.is3D ? "bg-cyan-500" : "bg-white/10"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-3 h-3 rounded-full bg-white transition-all",
+                      mapStyle.is3D ? "left-6" : "left-1"
+                    )} />
+                  </button>
+                </div>
+                <p className="text-[10px] text-white/30 leading-tight">
+                  Extrude grid cells based on their aggregated values for 3D perspective.
+                </p>
+              </div>
+            )}
+
             <div className="pt-4 border-t border-white/5 space-y-4">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/20 flex items-center gap-2">
                 <Palette size={12} />

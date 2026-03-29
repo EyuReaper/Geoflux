@@ -1,9 +1,10 @@
 import { create } from 'zustand'
-import type { VisualizationMode, DataPoint, MapState, MapStyle } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState } from '../types/index'
 
 interface GeoFluxState {
   // Data
   data: DataPoint[]
+  filteredData: DataPoint[]
   isLoading: boolean
   error: string | null
   
@@ -17,6 +18,7 @@ interface GeoFluxState {
   mapState: MapState
   mapStyle: MapStyle
   mapStyleType: 'dark' | 'light'
+  filters: FilterState
   
   // Actions
   setData: (data: DataPoint[]) => void
@@ -26,6 +28,7 @@ interface GeoFluxState {
   setMapState: (state: Partial<MapState>) => void
   updateMapStyle: (style: Partial<MapStyle>) => void
   setMapStyleType: (type: 'dark' | 'light') => void
+  setFilters: (filters: Partial<FilterState>) => void
   toggleSidebar: () => void
   toggleRightPanel: () => void
   toggleLive: () => void
@@ -33,8 +36,9 @@ interface GeoFluxState {
   updateDataPoints: () => void
 }
 
-export const useStore = create<GeoFluxState>((set) => ({
+export const useStore = create<GeoFluxState>((set, get) => ({
   data: [],
+  filteredData: [],
   isLoading: false,
   error: null,
   mode: 'markers',
@@ -57,10 +61,22 @@ export const useStore = create<GeoFluxState>((set) => ({
     heatmapIntensity: 1,
     heatmapRadius: 30,
     colorScale: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'],
+    is3D: true,
   },
   mapStyleType: 'dark',
   
-  setData: (data) => set({ data, isLoading: false }),
+  filters: {
+    minValue: 0,
+    maxValue: 100,
+    categories: [],
+    searchQuery: '',
+  },
+  
+  setData: (data) => {
+    set({ data, isLoading: false })
+    get().setFilters({}) // Trigger filtering
+  },
+  
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error, isLoading: false }),
   setMode: (mode) => set({ mode }),
@@ -71,16 +87,37 @@ export const useStore = create<GeoFluxState>((set) => ({
     mapStyle: { ...prev.mapStyle, ...style } 
   })),
   setMapStyleType: (mapStyleType) => set({ mapStyleType }),
+  
+  setFilters: (newFilters) => {
+    const state = get()
+    const filters = { ...state.filters, ...newFilters }
+    
+    const filteredData = state.data.filter(d => {
+      const val = d.value || 0
+      const matchesValue = val >= filters.minValue && val <= filters.maxValue
+      const matchesCategory = filters.categories.length === 0 || (d.category && filters.categories.includes(d.category))
+      const matchesSearch = !filters.searchQuery || 
+        JSON.stringify(d.metadata || {}).toLowerCase().includes(filters.searchQuery.toLowerCase())
+      
+      return matchesValue && matchesCategory && matchesSearch
+    })
+    
+    set({ filters, filteredData })
+  },
+  
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
   toggleLive: () => set((state) => ({ isLive: !state.isLive })),
   
-  updateDataPoints: () => set((state) => ({
-    data: state.data.map(d => ({
+  updateDataPoints: () => {
+    const state = get()
+    const newData = state.data.map(d => ({
       ...d,
       value: Math.max(0, Math.min(100, (d.value || 0) + (Math.random() - 0.5) * 10))
     }))
-  })),
+    set({ data: newData })
+    state.setFilters({}) // Re-apply filters to new data
+  },
   
   loadDemoData: () => {
     const demoPoints: DataPoint[] = Array.from({ length: 1000 }).map((_, i) => ({
@@ -91,6 +128,8 @@ export const useStore = create<GeoFluxState>((set) => ({
       category: ['A', 'B', 'C'][Math.floor(Math.random() * 3)],
       metadata: { city: 'Demo City ' + i }
     }))
-    set({ data: demoPoints, mode: 'markers' })
+    const { setData } = get()
+    setData(demoPoints)
+    set({ mode: 'markers' })
   }
 }))
