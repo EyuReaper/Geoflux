@@ -6,11 +6,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-#markdown
+
+# Project Specifics
 GEMINI.md
-node_modules
-dist
-dist-ssr
+geoflux-frontend/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
 *.local
 
 # Editor directories and files
