@@ -13,7 +13,7 @@ const Map = () => {
   const map = useRef<maplibregl.Map | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, filteredData: data, mode, mapStyle, mapStyleType } = useStore()
+  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType } = useStore()
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
@@ -24,42 +24,33 @@ const Map = () => {
       if (mapInstance.getLayer(l)) mapInstance.removeLayer(l)
     })
 
-    if (mode === 'markers') {
-      if (!mapInstance.getSource('geoflux-data')) return
-      mapInstance.addLayer({
-        id: 'geoflux-markers',
-        type: 'circle',
-        source: 'geoflux-data',
-        paint: {
-          'circle-radius': mapStyle.pointSize,
-          'circle-color': mapStyle.pointColor,
-          'circle-opacity': mapStyle.opacity,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#fff'
-        }
-      })
-    } else if (mode === 'heatmap') {
-      if (!mapInstance.getSource('geoflux-data')) return
-      mapInstance.addLayer({
-        id: 'geoflux-heatmap',
-        type: 'heatmap',
-        source: 'geoflux-data',
-        paint: {
-          'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
-          'heatmap-intensity': mapStyle.heatmapIntensity,
-          'heatmap-color': [
-            'interpolate', ['linear'], ['heatmap-density'],
-            0, 'rgba(0,0,0,0)',
-            0.2, mapStyle.colorScale[0],
-            0.4, mapStyle.colorScale[1],
-            0.6, mapStyle.colorScale[2],
-            0.8, mapStyle.colorScale[3]
-          ],
-          'heatmap-radius': mapStyle.heatmapRadius,
-          'heatmap-opacity': mapStyle.opacity
-        }
-      })
-    } else if (mode === 'choropleth') {
+    // Layer Order: Heatmap (Bottom) -> Area/Choropleth -> Markers (Top)
+    
+    if (activeModes.includes('heatmap')) {
+      if (mapInstance.getSource('geoflux-data')) {
+        mapInstance.addLayer({
+          id: 'geoflux-heatmap',
+          type: 'heatmap',
+          source: 'geoflux-data',
+          paint: {
+            'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
+            'heatmap-intensity': mapStyle.heatmapIntensity,
+            'heatmap-color': [
+              'interpolate', ['linear'], ['heatmap-density'],
+              0, 'rgba(0,0,0,0)',
+              0.2, mapStyle.colorScale[0],
+              0.4, mapStyle.colorScale[1],
+              0.6, mapStyle.colorScale[2],
+              0.8, mapStyle.colorScale[3]
+            ],
+            'heatmap-radius': mapStyle.heatmapRadius,
+            'heatmap-opacity': mapStyle.opacity
+          }
+        })
+      }
+    }
+
+    if (activeModes.includes('choropleth')) {
       const gridSize = 5
       const grid: Record<string, { count: number; sum: number; lat: number; lng: number }> = {}
       
@@ -144,7 +135,24 @@ const Map = () => {
         }
       }
     }
-  }, [mode, mapStyle, data])
+
+    if (activeModes.includes('markers')) {
+      if (mapInstance.getSource('geoflux-data')) {
+        mapInstance.addLayer({
+          id: 'geoflux-markers',
+          type: 'circle',
+          source: 'geoflux-data',
+          paint: {
+            'circle-radius': mapStyle.pointSize,
+            'circle-color': mapStyle.pointColor,
+            'circle-opacity': mapStyle.opacity,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#fff'
+          }
+        })
+      }
+    }
+  }, [activeModes, mapStyle, data])
 
   useEffect(() => {
     if (!mapContainer.current) return
@@ -262,7 +270,7 @@ const Map = () => {
 
   useEffect(() => {
     updateLayers()
-  }, [mode, mapStyle, updateLayers])
+  }, [activeModes, mapStyle, updateLayers])
 
   return (
     <div className="w-full h-full relative bg-[#111]">

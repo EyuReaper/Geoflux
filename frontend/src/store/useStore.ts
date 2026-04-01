@@ -12,7 +12,7 @@ interface GeoFluxState {
   error: string | null
   
   // UI State
-  mode: VisualizationMode
+  activeModes: VisualizationMode[]
   isSidebarOpen: boolean
   isRightPanelOpen: boolean
   isLive: boolean
@@ -30,7 +30,7 @@ interface GeoFluxState {
   setFieldMapping: (mapping: Partial<FieldMapping>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
-  setMode: (mode: VisualizationMode) => void
+  toggleMode: (mode: VisualizationMode) => void
   setMapState: (state: Partial<MapState>) => void
   updateMapStyle: (style: Partial<MapStyle>) => void
   setMapStyleType: (type: 'dark' | 'light') => void
@@ -62,7 +62,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   fieldMapping: defaultMapping,
   isLoading: false,
   error: null,
-  mode: 'markers',
+  activeModes: ['markers'],
   isSidebarOpen: true,
   isRightPanelOpen: true,
   isLive: false,
@@ -163,7 +163,11 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error, isLoading: false }),
-  setMode: (mode) => set({ mode }),
+  toggleMode: (mode) => set((state) => ({
+    activeModes: state.activeModes.includes(mode)
+      ? state.activeModes.filter(m => m !== mode)
+      : [...state.activeModes, mode]
+  })),
   setMapState: (state) => set((prev) => ({ 
     mapState: { ...prev.mapState, ...state } 
   })),
@@ -250,6 +254,6 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       timestamp: 'recorded_at'
     }})
     get().setRawData(demoPoints)
-    set({ mode: 'markers' })
+    set({ activeModes: ['markers'] })
   }
 }))

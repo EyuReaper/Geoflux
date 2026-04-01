@@ -7,7 +7,7 @@ import type { VisualizationMode } from '../types'
 
 const RightPanel = () => {
   const { 
-    isRightPanelOpen, mode, setMode, mapStyle, 
+    isRightPanelOpen, activeModes, toggleMode, mapStyle, 
     updateMapStyle, data, isLive, toggleLive, 
     updateDataPoints, mapStyleType, setMapStyleType 
   } = useStore()
@@ -105,16 +105,16 @@ const RightPanel = () => {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
             <Layers size={14} />
-            Visualization Mode
+            Visualization Overlays
           </h2>
           <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
             {modes.map((m) => (
               <button
                 key={m.id}
-                onClick={() => setMode(m.id)}
+                onClick={() => toggleMode(m.id)}
                 className={cn(
                   "flex flex-col items-center gap-1.5 py-3 rounded-lg transition-all",
-                  mode === m.id 
+                  activeModes.includes(m.id)
                     ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/20" 
                     : "text-white/40 hover:text-white hover:bg-white/5"
                 )}
@@ -135,7 +135,7 @@ const RightPanel = () => {
           <div className="space-y-5">
             <div className="space-y-3">
               <div className="flex justify-between">
-                <label className="text-xs font-medium text-white/60">Opacity</label>
+                <label className="text-xs font-medium text-white/60">Global Opacity</label>
                 <span className="text-xs text-cyan-400 font-mono">{Math.round(mapStyle.opacity * 100)}%</span>
               </div>
               <input 
@@ -147,8 +147,8 @@ const RightPanel = () => {
               />
             </div>
 
-            {mode === 'markers' && (
-              <div className="space-y-3">
+            {activeModes.includes('markers') && (
+              <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/5">
                 <div className="flex justify-between">
                   <label className="text-xs font-medium text-white/60">Marker Size</label>
                   <span className="text-xs text-cyan-400 font-mono">{mapStyle.pointSize}px</span>
@@ -163,8 +163,8 @@ const RightPanel = () => {
               </div>
             )}
 
-            {mode === 'heatmap' && (
-              <>
+            {activeModes.includes('heatmap') && (
+              <div className="space-y-4 p-4 rounded-xl bg-white/5 border border-white/5">
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <label className="text-xs font-medium text-white/60">Heat Radius</label>
@@ -191,11 +191,11 @@ const RightPanel = () => {
                     className="w-full accent-cyan-500"
                   />
                 </div>
-              </>
+              </div>
             )}
 
-            {mode === 'choropleth' && (
-              <div className="pt-4 border-t border-white/5 space-y-4">
+            {activeModes.includes('choropleth') && (
+              <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-white/60 uppercase tracking-tighter">3D Extrusion</label>
                   <button 
@@ -220,7 +220,7 @@ const RightPanel = () => {
             <div className="pt-4 border-t border-white/5 space-y-4">
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/20 flex items-center gap-2">
                 <Palette size={12} />
-                Color Palette
+                Global Palette
               </h3>
               <div className="flex gap-2">
                 {['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'].map(color => (
@@ -238,6 +238,7 @@ const RightPanel = () => {
             </div>
           </div>
         </div>
+
 
         {data.length > 0 && (
           <div className="bg-cyan-500/5 rounded-2xl border border-cyan-500/10 p-4">

@@ -1,5 +1,5 @@
 import React, { useRef, useMemo } from 'react'
-import { Upload, X, CheckCircle2, Search, Filter, Settings2 } from 'lucide-react'
+import { Upload, X, CheckCircle2, Search, Filter, Settings2, Download, FileJson, FileSpreadsheet } from 'lucide-react'
 import Papa from 'papaparse'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
@@ -7,7 +7,7 @@ import type { FieldMapping } from '../types'
 
 const Sidebar = () => {
   const { 
-    isSidebarOpen, setRawData, data, filters, setFilters, 
+    isSidebarOpen, setRawData, data, filteredData, filters, setFilters, 
     availableFields, fieldMapping, setFieldMapping 
   } = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -44,6 +44,38 @@ const Sidebar = () => {
         }
       })
     }
+  }
+
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(filteredData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `geoflux_export_${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportCSV = () => {
+    // Flatten metadata for CSV export
+    const csvData = filteredData.map(d => ({
+      id: d.id,
+      lat: d.lat,
+      lng: d.lng,
+      value: d.value,
+      category: d.category,
+      timestamp: d.timestamp,
+      ...(typeof d.metadata === 'object' ? d.metadata : {})
+    }))
+    
+    const csv = Papa.unparse(csvData)
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `geoflux_export_${Date.now()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const MappingRow = ({ label, field, value }: { label: string, field: keyof FieldMapping, value: string }) => (
@@ -199,6 +231,32 @@ const Sidebar = () => {
                 </div>
               )}
             </div>
+
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+                <Download size={14} />
+                Export Data
+              </h2>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={exportJSON}
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all text-xs font-bold uppercase tracking-tight"
+                >
+                  <FileJson size={16} className="text-cyan-400" />
+                  JSON
+                </button>
+                <button 
+                  onClick={exportCSV}
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all text-xs font-bold uppercase tracking-tight"
+                >
+                  <FileSpreadsheet size={16} className="text-cyan-400" />
+                  CSV
+                </button>
+              </div>
+              <p className="text-[10px] text-white/30 text-center italic">
+                Exporting {filteredData.length} filtered records.
+              </p>
+            </div>
           </>
         )}
       </div>
@@ -207,3 +265,4 @@ const Sidebar = () => {
 }
 
 export default Sidebar
+
