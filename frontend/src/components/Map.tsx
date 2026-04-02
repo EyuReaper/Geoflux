@@ -19,6 +19,21 @@ const Map = () => {
     const mapInstance = map.current
     if (!mapInstance || !mapInstance.isStyleLoaded()) return
 
+    // Ensure source exists
+    if (!mapInstance.getSource('geoflux-data')) {
+      mapInstance.addSource('geoflux-data', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: data.map(d => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+            properties: { ...d.metadata, value: d.value, category: d.category }
+          } as GeoJSON.Feature))
+        }
+      })
+    }
+
     const layers = ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
     layers.forEach(l => {
       if (mapInstance.getLayer(l)) mapInstance.removeLayer(l)
@@ -27,27 +42,25 @@ const Map = () => {
     // Layer Order: Heatmap (Bottom) -> Area/Choropleth -> Markers (Top)
     
     if (activeModes.includes('heatmap')) {
-      if (mapInstance.getSource('geoflux-data')) {
-        mapInstance.addLayer({
-          id: 'geoflux-heatmap',
-          type: 'heatmap',
-          source: 'geoflux-data',
-          paint: {
-            'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
-            'heatmap-intensity': mapStyle.heatmapIntensity,
-            'heatmap-color': [
-              'interpolate', ['linear'], ['heatmap-density'],
-              0, 'rgba(0,0,0,0)',
-              0.2, mapStyle.colorScale[0],
-              0.4, mapStyle.colorScale[1],
-              0.6, mapStyle.colorScale[2],
-              0.8, mapStyle.colorScale[3]
-            ],
-            'heatmap-radius': mapStyle.heatmapRadius,
-            'heatmap-opacity': mapStyle.opacity
-          }
-        })
-      }
+      mapInstance.addLayer({
+        id: 'geoflux-heatmap',
+        type: 'heatmap',
+        source: 'geoflux-data',
+        paint: {
+          'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
+          'heatmap-intensity': mapStyle.heatmapIntensity,
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0,0,0,0)',
+            0.2, mapStyle.colorScale[0],
+            0.4, mapStyle.colorScale[1],
+            0.6, mapStyle.colorScale[2],
+            0.8, mapStyle.colorScale[3]
+          ],
+          'heatmap-radius': mapStyle.heatmapRadius,
+          'heatmap-opacity': mapStyle.opacity
+        }
+      })
     }
 
     if (activeModes.includes('choropleth')) {
@@ -92,65 +105,61 @@ const Map = () => {
         })
       }
 
-      if (mapInstance.getSource('geoflux-grid')) {
-        if (mapStyle.is3D) {
-          mapInstance.addLayer({
-            id: 'geoflux-choropleth',
-            type: 'fill-extrusion',
-            source: 'geoflux-grid',
-            paint: {
-              'fill-extrusion-color': [
-                'interpolate', ['linear'], ['get', 'value'],
-                0, 'rgba(0,0,0,0)',
-                25, mapStyle.colorScale[0],
-                50, mapStyle.colorScale[1],
-                75, mapStyle.colorScale[2],
-                100, mapStyle.colorScale[3]
-              ],
-              'fill-extrusion-height': ['*', ['get', 'value'], 5000], 
-              'fill-extrusion-base': 0,
-              'fill-extrusion-opacity': mapStyle.opacity
-            }
-          })
-          mapInstance.easeTo({ pitch: 45, duration: 1000 })
-        } else {
-          mapInstance.addLayer({
-            id: 'geoflux-choropleth',
-            type: 'fill',
-            source: 'geoflux-grid',
-            paint: {
-              'fill-color': [
-                'interpolate', ['linear'], ['get', 'value'],
-                0, 'rgba(0,0,0,0)',
-                25, mapStyle.colorScale[0],
-                50, mapStyle.colorScale[1],
-                75, mapStyle.colorScale[2],
-                100, mapStyle.colorScale[3]
-              ],
-              'fill-opacity': mapStyle.opacity,
-              'fill-outline-color': 'rgba(255,255,255,0.1)'
-            }
-          })
-          mapInstance.easeTo({ pitch: 0, duration: 1000 })
-        }
+      if (mapStyle.is3D) {
+        mapInstance.addLayer({
+          id: 'geoflux-choropleth',
+          type: 'fill-extrusion',
+          source: 'geoflux-grid',
+          paint: {
+            'fill-extrusion-color': [
+              'interpolate', ['linear'], ['get', 'value'],
+              0, 'rgba(0,0,0,0)',
+              25, mapStyle.colorScale[0],
+              50, mapStyle.colorScale[1],
+              75, mapStyle.colorScale[2],
+              100, mapStyle.colorScale[3]
+            ],
+            'fill-extrusion-height': ['*', ['get', 'value'], 5000], 
+            'fill-extrusion-base': 0,
+            'fill-extrusion-opacity': mapStyle.opacity
+          }
+        })
+        mapInstance.easeTo({ pitch: 45, duration: 1000 })
+      } else {
+        mapInstance.addLayer({
+          id: 'geoflux-choropleth',
+          type: 'fill',
+          source: 'geoflux-grid',
+          paint: {
+            'fill-color': [
+              'interpolate', ['linear'], ['get', 'value'],
+              0, 'rgba(0,0,0,0)',
+              25, mapStyle.colorScale[0],
+              50, mapStyle.colorScale[1],
+              75, mapStyle.colorScale[2],
+              100, mapStyle.colorScale[3]
+            ],
+            'fill-opacity': mapStyle.opacity,
+            'fill-outline-color': 'rgba(255,255,255,0.1)'
+          }
+        })
+        mapInstance.easeTo({ pitch: 0, duration: 1000 })
       }
     }
 
     if (activeModes.includes('markers')) {
-      if (mapInstance.getSource('geoflux-data')) {
-        mapInstance.addLayer({
-          id: 'geoflux-markers',
-          type: 'circle',
-          source: 'geoflux-data',
-          paint: {
-            'circle-radius': mapStyle.pointSize,
-            'circle-color': mapStyle.pointColor,
-            'circle-opacity': mapStyle.opacity,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#fff'
-          }
-        })
-      }
+      mapInstance.addLayer({
+        id: 'geoflux-markers',
+        type: 'circle',
+        source: 'geoflux-data',
+        paint: {
+          'circle-radius': mapStyle.pointSize,
+          'circle-color': mapStyle.pointColor,
+          'circle-opacity': mapStyle.opacity,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fff'
+        }
+      })
     }
   }, [activeModes, mapStyle, data])
 
@@ -193,14 +202,20 @@ const Map = () => {
     })
 
     m.on('mousemove', (e) => {
-      if (!map.current || !isLoaded) return
+      const mapInstance = map.current
+      if (!mapInstance || !mapInstance.isStyleLoaded()) return
       
-      const features = map.current.queryRenderedFeatures(e.point, {
-        layers: ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
+      const potentialLayers = ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
+      const layers = potentialLayers.filter(l => mapInstance.getLayer(l))
+      
+      if (layers.length === 0) return
+
+      const features = mapInstance.queryRenderedFeatures(e.point, {
+        layers
       })
 
       if (features.length > 0) {
-        map.current.getCanvas().style.cursor = 'pointer'
+        mapInstance.getCanvas().style.cursor = 'pointer'
         const feature = features[0]
         const props = feature.properties
         
@@ -214,9 +229,9 @@ const Map = () => {
               ${props.count ? `<div style="font-size: 9px; opacity: 0.3; margin-top: 4px;">Aggregated points: ${props.count}</div>` : ''}
             </div>
           `)
-          .addTo(map.current)
+          .addTo(mapInstance)
       } else {
-        map.current.getCanvas().style.cursor = ''
+        mapInstance.getCanvas().style.cursor = ''
         popup.current?.remove()
       }
     })
@@ -227,12 +242,17 @@ const Map = () => {
 
     m.on('move', () => {
       const { lng, lat } = m.getCenter()
+      const b = m.getBounds()
       setMapState({
         lng,
         lat,
         zoom: m.getZoom(),
         pitch: m.getPitch(),
-        bearing: m.getBearing()
+        bearing: m.getBearing(),
+        bounds: {
+          sw: [b.getWest(), b.getSouth()],
+          ne: [b.getEast(), b.getNorth()]
+        }
       })
     })
 
@@ -266,6 +286,11 @@ const Map = () => {
     }
 
     updateLayers()
+    
+    // Ensure map fits container after data load
+    setTimeout(() => {
+      mapInstance.resize()
+    }, 100)
   }, [data, updateLayers, isLoaded])
 
   useEffect(() => {

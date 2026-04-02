@@ -1,16 +1,47 @@
-import { useEffect } from 'react'
-import { Layers, MousePointer2, Flame, Map as MapIcon, Sliders, Palette, Radio, Sun, Moon } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { Layers, MousePointer2, Flame, Map as MapIcon, Sliders, Palette, Radio, Sun, Moon, TrendingUp, BarChart3, Activity } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
-import type { VisualizationMode } from '../types'
+import type { VisualizationMode, DataStats } from '../types'
 
 const RightPanel = () => {
   const { 
     isRightPanelOpen, activeModes, toggleMode, mapStyle, 
-    updateMapStyle, data, isLive, toggleLive, 
+    updateMapStyle, data, viewportFilteredData, isLive, toggleLive, 
     updateDataPoints, mapStyleType, setMapStyleType 
   } = useStore()
+
+  const stats = useMemo((): DataStats => {
+    const points = viewportFilteredData
+    if (points.length === 0) {
+      return { min: 0, max: 0, avg: 0, count: 0, total: 0, categoryBreakdown: {} }
+    }
+
+    let min = Infinity
+    let max = -Infinity
+    let total = 0
+    const catMap: Record<string, number> = {}
+
+    points.forEach(p => {
+      const v = p.value || 0
+      if (v < min) min = v
+      if (v > max) max = v
+      total += v
+      
+      const cat = p.category || 'Other'
+      catMap[cat] = (catMap[cat] || 0) + 1
+    })
+
+    return {
+      min: min === Infinity ? 0 : min,
+      max: max === -Infinity ? 0 : max,
+      avg: total / points.length,
+      count: points.length,
+      total,
+      categoryBreakdown: catMap
+    }
+  }, [viewportFilteredData])
 
   useEffect(() => {
     let interval: number | undefined
@@ -241,18 +272,78 @@ const RightPanel = () => {
 
 
         {data.length > 0 && (
-          <div className="bg-cyan-500/5 rounded-2xl border border-cyan-500/10 p-4">
-            <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-tighter mb-2">Live Statistics</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-[10px] text-white/40 uppercase font-bold">Total Points</div>
-                <div className="text-lg font-bold text-white tracking-tighter">{data.length.toLocaleString()}</div>
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+              <BarChart3 size={14} className="text-cyan-400" />
+              Viewport Insights
+            </h2>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1">
+                <div className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Points</div>
+                <div className="text-xl font-bold text-white tabular-nums">{stats.count.toLocaleString()}</div>
               </div>
-              <div>
-                <div className="text-[10px] text-white/40 uppercase font-bold">Density</div>
-                <div className="text-lg font-bold text-white tracking-tighter">High</div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1">
+                <div className="text-[9px] font-bold text-white/30 uppercase tracking-widest">Average</div>
+                <div className="text-xl font-bold text-cyan-400 tabular-nums">{stats.avg.toFixed(1)}</div>
               </div>
             </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-tight">
+                  <TrendingUp size={12} /> Range Analysis
+                </div>
+                <div className="text-[10px] font-mono text-cyan-400/60">
+                  Total: {stats.total.toLocaleString()}
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px] text-white/30 uppercase">
+                    <span>Min Value</span>
+                    <span className="text-white/60 font-mono">{stats.min.toFixed(1)}</span>
+                  </div>
+                  <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-cyan-500/20" style={{ width: '100%' }} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px] text-white/30 uppercase">
+                    <span>Max Value</span>
+                    <span className="text-white/60 font-mono">{stats.max.toFixed(1)}</span>
+                  </div>
+                  <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]" style={{ width: '100%' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {Object.keys(stats.categoryBreakdown).length > 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+                 <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-tight">
+                  <Activity size={12} /> Composition
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(stats.categoryBreakdown).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([cat, count]) => (
+                    <div key={cat} className="space-y-1">
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-white/60 font-medium">{cat}</span>
+                        <span className="text-white/30">{Math.round((count / stats.count) * 100)}%</span>
+                      </div>
+                      <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-cyan-500/40" 
+                          style={{ width: `${(count / stats.count) * 100}%` }} 
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

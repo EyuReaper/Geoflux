@@ -39,6 +39,19 @@ export type MapState = {
   zoom: number;
   pitch: number;
   bearing: number;
+  bounds?: {
+    sw: [number, number]; // [lng, lat]
+    ne: [number, number];
+  };
+};
+
+export type DataStats = {
+  min: number;
+  max: number;
+  avg: number;
+  count: number;
+  total: number;
+  categoryBreakdown: Record<string, number>;
 };
 
 export type MapStyle = {

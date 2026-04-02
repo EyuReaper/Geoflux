@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Play, Pause, FastForward, Rewind, Clock } from 'lucide-react'
 import { useStore } from '../store/useStore'
-import { cn } from '../lib/utils'
 
 const Timeline = () => {
   const { data, timeline, setTimeline, togglePlayback, tickTimeline } = useStore()

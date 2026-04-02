@@ -5,6 +5,28 @@ import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { FieldMapping } from '../types'
 
+const MappingRow = ({ label, field, value, availableFields, setFieldMapping }: { 
+  label: string, 
+  field: keyof FieldMapping, 
+  value: string,
+  availableFields: string[],
+  setFieldMapping: (mapping: Partial<FieldMapping>) => void
+}) => (
+  <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-white/5 border border-white/5">
+    <span className="text-[10px] font-bold uppercase text-white/40 tracking-wider">{label}</span>
+    <select 
+      value={value}
+      onChange={(e) => setFieldMapping({ [field]: e.target.value })}
+      className="bg-transparent text-xs text-cyan-400 font-medium outline-none cursor-pointer hover:text-cyan-300 transition-colors"
+    >
+      <option value="" className="bg-black text-white">None (Default)</option>
+      {availableFields.map(f => (
+        <option key={f} value={f} className="bg-black text-white">{f}</option>
+      ))}
+    </select>
+  </div>
+)
+
 const Sidebar = () => {
   const { 
     isSidebarOpen, setRawData, data, filteredData, filters, setFilters, 
@@ -78,22 +100,6 @@ const Sidebar = () => {
     URL.revokeObjectURL(url)
   }
 
-  const MappingRow = ({ label, field, value }: { label: string, field: keyof FieldMapping, value: string }) => (
-    <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-white/5 border border-white/5">
-      <span className="text-[10px] font-bold uppercase text-white/40 tracking-wider">{label}</span>
-      <select 
-        value={value}
-        onChange={(e) => setFieldMapping({ [field]: e.target.value })}
-        className="bg-transparent text-xs text-cyan-400 font-medium outline-none cursor-pointer hover:text-cyan-300 transition-colors"
-      >
-        <option value="" className="bg-black text-white">None (Default)</option>
-        {availableFields.map(f => (
-          <option key={f} value={f} className="bg-black text-white">{f}</option>
-        ))}
-      </select>
-    </div>
-  )
-
   return (
     <aside 
       className={cn(
@@ -156,11 +162,41 @@ const Sidebar = () => {
                 Field Mapping
               </h2>
               <div className="space-y-2">
-                <MappingRow label="Latitude" field="lat" value={fieldMapping.lat} />
-                <MappingRow label="Longitude" field="lng" value={fieldMapping.lng} />
-                <MappingRow label="Value (Intensity)" field="value" value={fieldMapping.value} />
-                <MappingRow label="Category" field="category" value={fieldMapping.category} />
-                <MappingRow label="Timestamp" field="timestamp" value={fieldMapping.timestamp} />
+                <MappingRow 
+                  label="Latitude" 
+                  field="lat" 
+                  value={fieldMapping.lat} 
+                  availableFields={availableFields}
+                  setFieldMapping={setFieldMapping}
+                />
+                <MappingRow 
+                  label="Longitude" 
+                  field="lng" 
+                  value={fieldMapping.lng} 
+                  availableFields={availableFields}
+                  setFieldMapping={setFieldMapping}
+                />
+                <MappingRow 
+                  label="Value (Intensity)" 
+                  field="value" 
+                  value={fieldMapping.value} 
+                  availableFields={availableFields}
+                  setFieldMapping={setFieldMapping}
+                />
+                <MappingRow 
+                  label="Category" 
+                  field="category" 
+                  value={fieldMapping.category} 
+                  availableFields={availableFields}
+                  setFieldMapping={setFieldMapping}
+                />
+                <MappingRow 
+                  label="Timestamp" 
+                  field="timestamp" 
+                  value={fieldMapping.timestamp} 
+                  availableFields={availableFields}
+                  setFieldMapping={setFieldMapping}
+                />
               </div>
             </div>
 

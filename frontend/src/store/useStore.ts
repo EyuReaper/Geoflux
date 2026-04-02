@@ -5,7 +5,8 @@ interface GeoFluxState {
   // Data
   data: DataPoint[]
   filteredData: DataPoint[]
-  rawData: any[]
+  viewportFilteredData: DataPoint[]
+  rawData: Record<string, unknown>[]
   availableFields: string[]
   fieldMapping: FieldMapping
   isLoading: boolean
@@ -26,7 +27,7 @@ interface GeoFluxState {
   
   // Actions
   setData: (data: DataPoint[]) => void
-  setRawData: (rawData: any[]) => void
+  setRawData: (rawData: Record<string, unknown>[]) => void
   setFieldMapping: (mapping: Partial<FieldMapping>) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -57,6 +58,7 @@ const defaultMapping: FieldMapping = {
 export const useStore = create<GeoFluxState>((set, get) => ({
   data: [],
   filteredData: [],
+  viewportFilteredData: [],
   rawData: [],
   availableFields: [],
   fieldMapping: defaultMapping,
@@ -109,16 +111,22 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     
     const fields = Object.keys(rawData[0])
     
-    // Auto-detect fields
-    const mapping: FieldMapping = {
-      lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
-      lng: fields.find(f => /lng|long|longitude/i.test(f)) || fields[1] || '',
-      value: fields.find(f => /val|count|mag|amount/i.test(f)) || '',
-      category: fields.find(f => /cat|type|class/i.test(f)) || '',
-      timestamp: fields.find(f => /time|date/i.test(f)) || ''
+    // Auto-detect fields only if current mapping is empty or default
+    const currentMapping = get().fieldMapping
+    const isDefault = currentMapping.lat === '' && currentMapping.lng === ''
+    
+    if (isDefault) {
+      const mapping: FieldMapping = {
+        lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
+        lng: fields.find(f => /lng|long|longitude/i.test(f)) || fields[1] || '',
+        value: fields.find(f => /val|count|intensity|mag|amount/i.test(f)) || '',
+        category: fields.find(f => /cat|type|class|group/i.test(f)) || '',
+        timestamp: fields.find(f => /time|date|recorded/i.test(f)) || ''
+      }
+      set({ fieldMapping: mapping })
     }
     
-    set({ rawData, availableFields: fields, fieldMapping: mapping })
+    set({ rawData, availableFields: fields })
     get().applyMapping()
   },
 
@@ -153,11 +161,13 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       set({ 
         data, 
         isLoading: false,
-        timeline: { ...get().timeline, startTime: min, endTime: max, currentTime: min }
+        timeline: { ...get().timeline, startTime: min, endTime: max, currentTime: max }
       })
     } else {
       set({ data, isLoading: false, timeline: { ...get().timeline, startTime: 0, endTime: 0, currentTime: 0 } })
     }
+    
+    // Initial filter will populate filteredData and viewportFilteredData
     get().setFilters({}) 
   },
   
@@ -168,9 +178,24 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       ? state.activeModes.filter(m => m !== mode)
       : [...state.activeModes, mode]
   })),
-  setMapState: (state) => set((prev) => ({ 
-    mapState: { ...prev.mapState, ...state } 
-  })),
+  setMapState: (state) => {
+    set((prev) => ({ 
+      mapState: { ...prev.mapState, ...state } 
+    }))
+    
+    // Filter by bounds if they changed or exist
+    const { mapState, filteredData } = get()
+    if (!mapState.bounds) {
+      set({ viewportFilteredData: filteredData })
+      return
+    }
+
+    const { sw, ne } = mapState.bounds
+    const viewportFilteredData = filteredData.filter(d => 
+      d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
+    )
+    set({ viewportFilteredData })
+  },
   updateMapStyle: (style) => set((prev) => ({ 
     mapStyle: { ...prev.mapStyle, ...style } 
   })),
@@ -198,7 +223,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       return matchesValue && matchesCategory && matchesSearch && matchesTime
     })
     
-    set({ filters, filteredData })
+    // Also apply viewport bounds if they exist
+    let viewportFilteredData = filteredData
+    if (state.mapState.bounds) {
+      const { sw, ne } = state.mapState.bounds
+      viewportFilteredData = filteredData.filter(d => 
+        d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
+      )
+    }
+    
+    set({ filters, filteredData, viewportFilteredData })
   },
 
   setTimeline: (newTimeline) => {
@@ -207,7 +241,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   },
 
   togglePlayback: () => set((state) => ({ 
-    timeline: { ...state.timeline, isPlaying: !state.isPlaying } 
+    timeline: { ...state.timeline, isPlaying: !state.timeline.isPlaying } 
   })),
 
   tickTimeline: () => {
@@ -237,7 +271,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   loadDemoData: () => {
     const now = Date.now()
     const day = 24 * 60 * 60 * 1000
-    const demoPoints: any[] = Array.from({ length: 1000 }).map((_, i) => ({
+    const demoPoints: Record<string, unknown>[] = Array.from({ length: 1000 }).map((_, i) => ({
       lat: (Math.random() - 0.5) * 140,
       lng: (Math.random() - 0.5) * 360,
       intensity: Math.random() * 100,
