@@ -1,9 +1,10 @@
 import React, { useRef, useMemo } from 'react'
-import { Upload, X, CheckCircle2, Search, Filter, Settings2, Download, FileJson, FileSpreadsheet } from 'lucide-react'
+import { Upload, X, Search, Filter, Settings2, Download, FileJson, FileSpreadsheet, Eye, EyeOff, Plus, Layers } from 'lucide-react'
 import Papa from 'papaparse'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { FieldMapping } from '../types'
+import Transformations from './Transformations'
 
 const MappingRow = ({ label, field, value, availableFields, setFieldMapping }: { 
   label: string, 
@@ -29,8 +30,9 @@ const MappingRow = ({ label, field, value, availableFields, setFieldMapping }: {
 
 const Sidebar = () => {
   const { 
-    isSidebarOpen, setRawData, data, filteredData, filters, setFilters, 
-    availableFields, fieldMapping, setFieldMapping 
+    isSidebarOpen, data, filteredData, filters, setFilters, 
+    availableFields, fieldMapping, setFieldMapping,
+    datasets, activeDatasetId, addDataset, removeDataset, toggleDatasetVisibility, setActiveDataset
   } = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -45,13 +47,14 @@ const Sidebar = () => {
     if (!file) return
 
     const reader = new FileReader()
+    const fileName = file.name.split('.')[0]
 
     if (file.name.endsWith('.json')) {
       reader.onload = (event) => {
         try {
           const json = JSON.parse(event.target?.result as string)
           const rawData = Array.isArray(json) ? json : [json]
-          setRawData(rawData)
+          addDataset(fileName, rawData)
         } catch (err) {
           console.error("Failed to parse JSON", err)
         }
@@ -62,7 +65,7 @@ const Sidebar = () => {
         header: true,
         dynamicTyping: true,
         complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
-          setRawData(results.data)
+          addDataset(fileName, results.data)
         }
       })
     }
@@ -109,52 +112,88 @@ const Sidebar = () => {
     >
       <div className="p-6 space-y-8 overflow-y-auto h-full pb-20">
         <div className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
-            <Upload size={14} />
-            Datasets
-          </h2>
-          
-          {data.length > 0 ? (
-            <div className="bg-white/5 rounded-xl border border-white/10 p-4 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => setRawData([])} className="p-1 hover:bg-white/10 rounded-md text-white/50 hover:text-white">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400">
-                  <CheckCircle2 size={20} />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-white">Active Dataset</div>
-                  <div className="text-xs text-white/40">{data.length} records mapped</div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div 
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
+              <Layers size={14} />
+              Datasets
+            </h2>
+            <button 
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-white/10 hover:border-cyan-500/50 rounded-2xl p-8 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all bg-white/[0.02] hover:bg-white/[0.04] group"
+              className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-all border border-cyan-500/20"
             >
-              <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <Upload size={24} className="text-white/40 group-hover:text-cyan-400" />
+              <Plus size={14} />
+            </button>
+          </div>
+          
+          <div className="space-y-2">
+            {datasets.map(ds => (
+              <div 
+                key={ds.id}
+                className={cn(
+                  "group relative p-3 rounded-xl border transition-all cursor-pointer",
+                  activeDatasetId === ds.id 
+                    ? "bg-white/10 border-white/20" 
+                    : "bg-white/5 border-white/5 hover:border-white/10"
+                )}
+                onClick={() => setActiveDataset(ds.id)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div 
+                      className="w-2 h-8 rounded-full flex-shrink-0" 
+                      style={{ backgroundColor: ds.color }} 
+                    />
+                    <div className="overflow-hidden">
+                      <div className="text-xs font-bold text-white truncate">{ds.name}</div>
+                      <div className="text-[10px] text-white/40">{ds.data.length} points</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleDatasetVisibility(ds.id); }}
+                      className="p-1.5 hover:bg-white/10 rounded-md text-white/40 hover:text-white"
+                    >
+                      {ds.isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeDataset(ds.id); }}
+                      className="p-1.5 hover:bg-red-500/10 rounded-md text-white/40 hover:text-red-400"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-white/80">Click to upload</div>
-                <div className="text-xs text-white/40 mt-1">JSON or CSV supported</div>
+            ))}
+
+            {datasets.length === 0 && (
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-white/10 hover:border-cyan-500/50 rounded-2xl p-8 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all bg-white/[0.02] hover:bg-white/[0.04] group"
+              >
+                <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Upload size={24} className="text-white/40 group-hover:text-cyan-400" />
+                </div>
+                <div className="text-center">
+                  <div className="text-sm font-medium text-white/80">Click to upload</div>
+                  <div className="text-xs text-white/40 mt-1">JSON or CSV supported</div>
+                </div>
               </div>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileUpload} 
-                className="hidden" 
-                accept=".json,.csv"
-              />
-            </div>
-          )}
+            )}
+            
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+              className="hidden" 
+              accept=".json,.csv"
+              multiple
+            />
+          </div>
         </div>
 
-        {data.length > 0 && (
+        {datasets.length > 0 && (
           <>
             <div className="space-y-4">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
@@ -199,6 +238,8 @@ const Sidebar = () => {
                 />
               </div>
             </div>
+
+            <Transformations />
 
             <div className="space-y-4">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">

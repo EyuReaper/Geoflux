@@ -14,7 +14,7 @@ const Map = () => {
   const map = useRef<maplibregl.Map | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType } = useStore()
+  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType, setSelectedEntity } = useStore()
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
@@ -240,6 +240,42 @@ const Map = () => {
       updateLayers()
     })
 
+    m.on('click', (e) => {
+      const mapInstance = map.current
+      if (!mapInstance || !mapInstance.isStyleLoaded()) return
+      
+      const potentialLayers = ['geoflux-markers', 'geoflux-choropleth']
+      const layers = potentialLayers.filter(l => mapInstance.getLayer(l))
+      
+      if (layers.length === 0) return
+
+      const features = mapInstance.queryRenderedFeatures(e.point, {
+        layers
+      })
+
+      if (features.length > 0) {
+        const feature = features[0]
+        const props = feature.properties
+        
+        if (feature.layer.id === 'geoflux-markers') {
+          setSelectedEntity({
+            type: 'point',
+            data: {
+              ...props,
+              metadata: props // Most props are metadata in our current mapping
+            }
+          })
+        } else if (feature.layer.id === 'geoflux-choropleth') {
+          setSelectedEntity({
+            type: 'cell',
+            data: props
+          })
+        }
+      } else {
+        setSelectedEntity(null)
+      }
+    })
+
     m.on('mousemove', (e) => {
       const mapInstance = map.current
       if (!mapInstance || !mapInstance.isStyleLoaded()) return
@@ -312,15 +348,26 @@ const Map = () => {
     const mapInstance = map.current
     if (!mapInstance || !isLoaded) return
 
+    const features = data.map(d => {
+      const dataset = useStore.getState().datasets.find(ds => ds.id === d.datasetId)
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+        properties: { 
+          ...d.metadata, 
+          value: d.value, 
+          category: d.category,
+          datasetId: d.datasetId,
+          datasetColor: dataset?.color 
+        }
+      } as GeoJSON.Feature
+    })
+
     const source = mapInstance.getSource('geoflux-data') as maplibregl.GeoJSONSource
     if (source) {
       source.setData({
         type: 'FeatureCollection',
-        features: data.map(d => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-          properties: { ...d.metadata, value: d.value, category: d.category }
-        } as GeoJSON.Feature))
+        features
       })
     }
 

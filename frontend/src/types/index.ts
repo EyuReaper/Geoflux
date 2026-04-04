@@ -2,12 +2,29 @@ export type VisualizationMode = 'markers' | 'heatmap' | 'choropleth';
 
 export type DataPoint = {
   id: string | number;
+  datasetId: string;
   lat: number;
   lng: number;
   value?: number;
   category?: string;
   timestamp?: string | number | Date;
   metadata?: Record<string, unknown>;
+};
+
+export type Transformation = {
+  id: string;
+  name: string;
+  expression: string; // e.g., "value * 1.5"
+  targetField: string;
+  active: boolean;
+};
+
+export type Dataset = {
+  id: string;
+  name: string;
+  color: string;
+  isVisible: boolean;
+  data: DataPoint[];
 };
 
 export type FilterState = {
@@ -31,6 +48,11 @@ export type FieldMapping = {
   value: string;
   category: string;
   timestamp: string;
+};
+
+export type InspectorEntity = {
+  type: 'point' | 'cell';
+  data: DataPoint | Record<string, unknown>;
 };
 
 export type MapState = {

@@ -1,8 +1,11 @@
 import { create } from 'zustand'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation } from '../types/index'
 
 interface GeoFluxState {
   // Data
+  datasets: Dataset[]
+  activeDatasetId: string | null
+  transformations: Transformation[]
   data: DataPoint[]
   filteredData: DataPoint[]
   viewportFilteredData: DataPoint[]
@@ -16,6 +19,7 @@ interface GeoFluxState {
   activeModes: VisualizationMode[]
   isSidebarOpen: boolean
   isRightPanelOpen: boolean
+  isInspectorOpen: boolean
   isLive: boolean
   
   // Map Config
@@ -25,7 +29,19 @@ interface GeoFluxState {
   filters: FilterState
   timeline: TimelineState
   
+  // Selection
+  selectedEntity: InspectorEntity | null
+  
   // Actions
+  addDataset: (name: string, rawData: Record<string, unknown>[]) => void
+  removeDataset: (id: string) => void
+  toggleDatasetVisibility: (id: string) => void
+  setActiveDataset: (id: string | null) => void
+  
+  addTransformation: (name: string, expression: string) => void
+  removeTransformation: (id: string) => void
+  toggleTransformation: (id: string) => void
+  
   setData: (data: DataPoint[]) => void
   setRawData: (rawData: Record<string, unknown>[]) => void
   setFieldMapping: (mapping: Partial<FieldMapping>) => void
@@ -45,6 +61,11 @@ interface GeoFluxState {
   updateDataPoints: () => void
   tickTimeline: () => void
   applyMapping: () => void
+  updateGlobalData: () => void
+  
+  // Inspector Actions
+  setSelectedEntity: (entity: InspectorEntity | null) => void
+  closeInspector: () => void
 }
 
 const defaultMapping: FieldMapping = {
@@ -56,6 +77,9 @@ const defaultMapping: FieldMapping = {
 }
 
 export const useStore = create<GeoFluxState>((set, get) => ({
+  datasets: [],
+  activeDatasetId: null,
+  transformations: [],
   data: [],
   filteredData: [],
   viewportFilteredData: [],
@@ -67,8 +91,83 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   activeModes: ['markers'],
   isSidebarOpen: true,
   isRightPanelOpen: true,
+  isInspectorOpen: false,
   isLive: false,
   
+  selectedEntity: null,
+
+  addDataset: (name, rawData) => {
+    const id = Math.random().toString(36).substring(7)
+    const color = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'][get().datasets.length % 5]
+    
+    set((state) => ({ 
+      datasets: [...state.datasets, { id, name, color, isVisible: true, data: [] }],
+      activeDatasetId: id
+    }))
+    
+    get().setRawData(rawData)
+  },
+
+  removeDataset: (id) => set((state) => {
+    const datasets = state.datasets.filter(d => d.id !== id)
+    const activeDatasetId = state.activeDatasetId === id 
+      ? (datasets.length > 0 ? datasets[0].id : null) 
+      : state.activeDatasetId
+    
+    return { datasets, activeDatasetId }
+  }),
+
+  toggleDatasetVisibility: (id) => {
+    set((state) => ({
+      datasets: state.datasets.map(d => d.id === id ? { ...d, isVisible: !d.isVisible } : d)
+    }))
+    get().updateGlobalData()
+  },
+
+  setActiveDataset: (id) => {
+    const dataset = get().datasets.find(d => d.id === id)
+    if (dataset) {
+      set({ 
+        activeDatasetId: id,
+        rawData: dataset.data.map(d => d.metadata as Record<string, unknown>),
+        availableFields: dataset.data.length > 0 ? Object.keys(dataset.data[0].metadata || {}) : []
+      })
+    } else {
+      set({ activeDatasetId: null, rawData: [], availableFields: [] })
+    }
+  },
+
+  addTransformation: (name, expression) => {
+    const id = Math.random().toString(36).substring(7)
+    set((state) => ({
+      transformations: [...state.transformations, { id, name, expression, targetField: 'value', active: true }]
+    }))
+    get().applyMapping()
+  },
+
+  removeTransformation: (id) => {
+    set((state) => ({
+      transformations: state.transformations.filter(t => t.id !== id)
+    }))
+    get().applyMapping()
+  },
+
+  toggleTransformation: (id) => {
+    set((state) => ({
+      transformations: state.transformations.map(t => t.id === id ? { ...t, active: !t.active } : t)
+    }))
+    get().applyMapping()
+  },
+
+  updateGlobalData: () => {
+    const allData = get().datasets
+      .filter(d => d.isVisible)
+      .flatMap(d => d.data)
+    
+    set({ data: allData })
+    get().setFilters({})
+  },
+
   mapState: {
     lat: 20,
     lng: 0,
@@ -138,20 +237,45 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   },
 
   applyMapping: () => {
-    const { rawData, fieldMapping } = get()
-    if (rawData.length === 0) return
+    const { rawData, fieldMapping, activeDatasetId, transformations } = get()
+    if (rawData.length === 0 || !activeDatasetId) return
 
-    const mappedData: DataPoint[] = rawData.map((d, i) => ({
-      id: i,
-      lat: Number(d[fieldMapping.lat] || 0),
-      lng: Number(d[fieldMapping.lng] || 0),
-      value: fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1,
-      category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-      timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as string | number | Date) : undefined,
-      metadata: d
+    const mappedData: DataPoint[] = rawData.map((d, i) => {
+      let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
+
+      // Apply active transformations
+      transformations.filter(t => t.active).forEach(t => {
+        try {
+          // Create a safe-ish evaluation environment
+          const fn = new Function('value', 'row', `return ${t.expression}`)
+          const result = fn(value, d)
+          if (typeof result === 'number' && !isNaN(result)) {
+            value = result
+          }
+        } catch (e) {
+          console.error(`Transformation error in "${t.name}":`, e)
+        }
+      })
+
+      return {
+        id: `${activeDatasetId}-${i}`,
+        datasetId: activeDatasetId,
+        lat: Number(d[fieldMapping.lat] || 0),
+        lng: Number(d[fieldMapping.lng] || 0),
+        value,
+        category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
+        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as string | number | Date) : undefined,
+        metadata: d
+      }
+    })
+
+    set((state) => ({
+      datasets: state.datasets.map(d => 
+        d.id === activeDatasetId ? { ...d, data: mappedData } : d
+      )
     }))
 
-    get().setData(mappedData)
+    get().updateGlobalData()
   },
 
   setData: (data) => {
@@ -289,7 +413,11 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       category: 'group',
       timestamp: 'recorded_at'
     }})
-    get().setRawData(demoPoints)
+    
+    get().addDataset('Global Simulation', demoPoints)
     set({ activeModes: ['markers'] })
-  }
+  },
+  
+  setSelectedEntity: (entity) => set({ selectedEntity: entity, isInspectorOpen: !!entity }),
+  closeInspector: () => set({ isInspectorOpen: false, selectedEntity: null })
 }))
