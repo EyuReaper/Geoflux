@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import * as h3 from 'h3-js'
 import { useStore } from '../store/useStore'
 
 const STYLES = {
@@ -64,34 +65,72 @@ const Map = () => {
     }
 
     if (activeModes.includes('choropleth')) {
-      const gridSize = 5
-      const grid: Record<string, { count: number; sum: number; lat: number; lng: number }> = {}
-      
-      data.forEach(d => {
-        const latBin = Math.floor(d.lat / gridSize) * gridSize
-        const lngBin = Math.floor(d.lng / gridSize) * gridSize
-        const key = `${latBin},${lngBin}`
-        if (!grid[key]) {
-          grid[key] = { count: 0, sum: 0, lat: latBin + gridSize / 2, lng: lngBin + gridSize / 2 }
-        }
-        grid[key].count++
-        grid[key].sum += d.value || 0
-      })
+      let gridFeatures: GeoJSON.Feature[] = []
 
-      const gridFeatures = Object.values(grid).map(g => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [[
-            [g.lng - gridSize / 2, g.lat - gridSize / 2],
-            [g.lng + gridSize / 2, g.lat - gridSize / 2],
-            [g.lng + gridSize / 2, g.lat + gridSize / 2],
-            [g.lng - gridSize / 2, g.lat + gridSize / 2],
-            [g.lng - gridSize / 2, g.lat - gridSize / 2]
-          ]]
-        },
-        properties: { value: g.sum / g.count, count: g.count }
-      }))
+      if (mapStyle.gridType === 'hex') {
+        const zoom = mapInstance.getZoom()
+        // Map zoom to H3 resolution
+        const resolution = Math.max(0, Math.min(15, Math.floor(zoom / 1.5) + mapStyle.gridResolution - 4))
+        
+        const h3Grid: Record<string, { count: number; sum: number }> = {}
+        
+        data.forEach(d => {
+          try {
+            const h3Index = h3.latLngToCell(d.lat, d.lng, resolution)
+            if (!h3Grid[h3Index]) {
+              h3Grid[h3Index] = { count: 0, sum: 0 }
+            }
+            h3Grid[h3Index].count++
+            h3Grid[h3Index].sum += d.value || 0
+          } catch {
+            // Ignore points outside valid H3 range
+          }
+        })
+
+        gridFeatures = Object.entries(h3Grid).map(([index, g]) => {
+          const boundary = h3.cellToBoundary(index)
+          const coordinates = [boundary.map(coord => [coord[1], coord[0]])]
+          coordinates[0].push(coordinates[0][0])
+          
+          return {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates
+            },
+            properties: { value: g.sum / g.count, count: g.count, h3Index: index }
+          }
+        })
+      } else {
+        const gridSize = 5
+        const grid: Record<string, { count: number; sum: number; lat: number; lng: number }> = {}
+        
+        data.forEach(d => {
+          const latBin = Math.floor(d.lat / gridSize) * gridSize
+          const lngBin = Math.floor(d.lng / gridSize) * gridSize
+          const key = `${latBin},${lngBin}`
+          if (!grid[key]) {
+            grid[key] = { count: 0, sum: 0, lat: latBin + gridSize / 2, lng: lngBin + gridSize / 2 }
+          }
+          grid[key].count++
+          grid[key].sum += d.value || 0
+        })
+
+        gridFeatures = Object.values(grid).map(g => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[
+              [g.lng - gridSize / 2, g.lat - gridSize / 2],
+              [g.lng + gridSize / 2, g.lat - gridSize / 2],
+              [g.lng + gridSize / 2, g.lat + gridSize / 2],
+              [g.lng - gridSize / 2, g.lat + gridSize / 2],
+              [g.lng - gridSize / 2, g.lat - gridSize / 2]
+            ]]
+          },
+          properties: { value: g.sum / g.count, count: g.count }
+        }))
+      }
 
       if (mapInstance.getSource('geoflux-grid')) {
         (mapInstance.getSource('geoflux-grid') as maplibregl.GeoJSONSource).setData({

@@ -85,6 +85,8 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     heatmapRadius: 30,
     colorScale: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'],
     is3D: true,
+    gridType: 'hex',
+    gridResolution: 4,
   },
   mapStyleType: 'dark',
   
@@ -145,7 +147,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       lng: Number(d[fieldMapping.lng] || 0),
       value: fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1,
       category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-      timestamp: fieldMapping.timestamp ? d[fieldMapping.timestamp] : undefined,
+      timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as string | number | Date) : undefined,
       metadata: d
     }))
 

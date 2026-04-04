@@ -227,7 +227,46 @@ const RightPanel = () => {
 
             {activeModes.includes('choropleth') && (
               <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase text-white/40 tracking-wider">Aggregation Type</label>
+                  <div className="flex p-1 bg-black/20 rounded-lg border border-white/5">
+                    <button 
+                      onClick={() => updateMapStyle({ gridType: 'hex' })}
+                      className={cn(
+                        "flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all",
+                        mapStyle.gridType === 'hex' ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/20" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      Hexagon
+                    </button>
+                    <button 
+                      onClick={() => updateMapStyle({ gridType: 'square' })}
+                      className={cn(
+                        "flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all",
+                        mapStyle.gridType === 'square' ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/20" : "text-white/40 hover:text-white"
+                      )}
+                    >
+                      Square
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <label className="text-[10px] font-bold uppercase text-white/40 tracking-wider">Resolution</label>
+                    <span className="text-xs text-cyan-400 font-mono">{mapStyle.gridResolution}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" max="8" step="1" 
+                    value={mapStyle.gridResolution}
+                    onChange={(e) => updateMapStyle({ gridResolution: parseInt(e.target.value) })}
+                    className="w-full accent-cyan-500"
+                  />
+                  <p className="text-[9px] text-white/20 italic">Resolution scales dynamically with map zoom.</p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/5">
                   <label className="text-xs font-medium text-white/60 uppercase tracking-tighter">3D Extrusion</label>
                   <button 
                     onClick={() => updateMapStyle({ is3D: !mapStyle.is3D })}
