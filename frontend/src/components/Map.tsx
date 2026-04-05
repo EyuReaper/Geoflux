@@ -14,7 +14,7 @@ const Map = () => {
   const map = useRef<maplibregl.Map | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType, setSelectedEntity } = useStore()
+  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType, setSelectedEntity, datasets } = useStore()
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
@@ -26,11 +26,20 @@ const Map = () => {
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
-          features: data.map(d => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-            properties: { ...d.metadata, value: d.value, category: d.category }
-          } as GeoJSON.Feature))
+          features: data.map(d => {
+            const dataset = datasets.find(ds => ds.id === d.datasetId)
+            return {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+              properties: { 
+                ...d.metadata, 
+                value: d.value, 
+                category: d.category,
+                datasetId: d.datasetId,
+                datasetColor: dataset?.color 
+              }
+            } as GeoJSON.Feature
+          })
         }
       })
     }
@@ -69,8 +78,8 @@ const Map = () => {
 
       if (mapStyle.gridType === 'hex') {
         const zoom = mapInstance.getZoom()
-        // Map zoom to H3 resolution
-        const resolution = Math.max(0, Math.min(15, Math.floor(zoom / 1.5) + mapStyle.gridResolution - 4))
+        // Improved zoom to H3 resolution mapping
+        const resolution = Math.max(0, Math.min(15, Math.floor(zoom / 1.6) + mapStyle.gridResolution - 3))
         
         const h3Grid: Record<string, { count: number; sum: number }> = {}
         
@@ -102,7 +111,10 @@ const Map = () => {
           }
         })
       } else {
-        const gridSize = 5
+        // Dynamic square grid size based on zoom
+        const zoom = mapInstance.getZoom()
+        const gridSize = Math.max(0.1, 10 / Math.pow(2, Math.max(0, zoom - 2))) * (10 / mapStyle.gridResolution)
+        
         const grid: Record<string, { count: number; sum: number; lat: number; lng: number }> = {}
         
         data.forEach(d => {
@@ -200,7 +212,7 @@ const Map = () => {
         }
       })
     }
-  }, [activeModes, mapStyle, data])
+  }, [activeModes, mapStyle, data, datasets])
 
   useEffect(() => {
     if (!mapContainer.current) return
@@ -222,20 +234,6 @@ const Map = () => {
         closeButton: false,
         closeOnClick: false
       })
-      
-      if (!m.getSource('geoflux-data')) {
-        m.addSource('geoflux-data', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: data.map(d => ({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-              properties: { ...d.metadata, value: d.value, category: d.category }
-            } as GeoJSON.Feature))
-          }
-        })
-      }
       
       updateLayers()
     })
@@ -262,7 +260,7 @@ const Map = () => {
             type: 'point',
             data: {
               ...props,
-              metadata: props // Most props are metadata in our current mapping
+              metadata: props 
             }
           })
         } else if (feature.layer.id === 'geoflux-choropleth') {
@@ -349,7 +347,7 @@ const Map = () => {
     if (!mapInstance || !isLoaded) return
 
     const features = data.map(d => {
-      const dataset = useStore.getState().datasets.find(ds => ds.id === d.datasetId)
+      const dataset = datasets.find(ds => ds.id === d.datasetId)
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
@@ -377,7 +375,7 @@ const Map = () => {
     setTimeout(() => {
       mapInstance.resize()
     }, 100)
-  }, [data, updateLayers, isLoaded])
+  }, [data, updateLayers, isLoaded, datasets])
 
   useEffect(() => {
     updateLayers()

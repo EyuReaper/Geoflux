@@ -66,6 +66,7 @@ interface GeoFluxState {
   // Inspector Actions
   setSelectedEntity: (entity: InspectorEntity | null) => void
   closeInspector: () => void
+  reset: () => void
 }
 
 const defaultMapping: FieldMapping = {
@@ -76,25 +77,62 @@ const defaultMapping: FieldMapping = {
   timestamp: ''
 }
 
-export const useStore = create<GeoFluxState>((set, get) => ({
-  datasets: [],
-  activeDatasetId: null,
-  transformations: [],
-  data: [],
-  filteredData: [],
-  viewportFilteredData: [],
-  rawData: [],
-  availableFields: [],
+const initialState = {
+  datasets: [] as Dataset[],
+  activeDatasetId: null as string | null,
+  transformations: [] as Transformation[],
+  data: [] as DataPoint[],
+  filteredData: [] as DataPoint[],
+  viewportFilteredData: [] as DataPoint[],
+  rawData: [] as Record<string, unknown>[],
+  availableFields: [] as string[],
   fieldMapping: defaultMapping,
   isLoading: false,
-  error: null,
-  activeModes: ['markers'],
+  error: null as string | null,
+  activeModes: ['markers'] as VisualizationMode[],
   isSidebarOpen: true,
   isRightPanelOpen: true,
   isInspectorOpen: false,
   isLive: false,
-  
-  selectedEntity: null,
+  selectedEntity: null as InspectorEntity | null,
+  mapState: {
+    lat: 20,
+    lng: 0,
+    zoom: 2,
+    pitch: 0,
+    bearing: 0,
+  },
+  mapStyle: {
+    pointColor: '#06b6d4', 
+    pointSize: 5,
+    opacity: 0.8,
+    heatmapIntensity: 1,
+    heatmapRadius: 30,
+    colorScale: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'],
+    is3D: true,
+    gridType: 'hex' as const,
+    gridResolution: 4,
+  },
+  mapStyleType: 'dark' as const,
+  filters: {
+    minValue: 0,
+    maxValue: 100,
+    categories: [] as string[],
+    searchQuery: '',
+  },
+  timeline: {
+    currentTime: 0,
+    startTime: 0,
+    endTime: 100,
+    isPlaying: false,
+    speed: 1,
+  },
+}
+
+export const useStore = create<GeoFluxState>((set, get) => ({
+  ...initialState,
+
+  reset: () => set(initialState),
 
   addDataset: (name, rawData) => {
     const id = Math.random().toString(36).substring(7)
