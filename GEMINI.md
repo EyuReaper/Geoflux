@@ -11,12 +11,18 @@ GeoFlux is a high-performance, real-time global data visualization and analysis 
 - **Data Parsing:** PapaParse
 - **Icons:** Lucide React
 
+## Technologies - Backend
+- **Runtime:** Node.js (TypeScript)
+- **Framework:** Express
+- **ORM:** Prisma
+- **Database:** PostgreSQL (PostGIS recommended for spatial analysis)
+- **Validation:** Zod
+
 ## Architecture
 The application follows a modular architecture:
-- `src/components/`: UI components (Map, Sidebar, Navbar, RightPanel, Timeline, UI primitives).
-- `src/store/`: Centralized state management using Zustand (`useStore.ts`).
-- `src/types/`: TypeScript definitions for data points, map state, filters, etc.
-- `src/lib/`: Utility functions.
+- `frontend/src/`: React frontend.
+- `backend/src/`: Express server logic.
+- `backend/prisma/`: Database schema and migrations.
 
 ### Core Features
 1. **Visualization Modes:**
@@ -32,27 +38,31 @@ The application follows a modular architecture:
 
 ### Prerequisites
 - Node.js (Latest LTS recommended)
+- PostgreSQL (Running instance for backend)
 - npm or yarn
 
-### Development
+### Frontend Development
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### Build
+### Backend Development
 ```bash
-cd frontend
-npm run build
+cd backend
+npm install
+# Update .env with your DATABASE_URL
+npx prisma migrate dev
+npm run dev
 ```
-The output will be in `frontend/dist`.
 
-### Linting
-```bash
-cd frontend
-npm run lint
-```
+## Next Steps
+1. **Data Persistence:** Implement API endpoints (`POST /datasets`, `GET /datasets`) to move from in-memory to database storage.
+2. **Backend/Frontend Handshake:** Replace the `loadDemoData` mock in the frontend with real API calls to the backend.
+3. **Real-time Engine:** Implement WebSockets (Socket.io) to replace the frontend "simulation" with real-time server-side data feeds.
+4. **Tiled Visualization:** Develop a vector tile server (MVT) on the backend to support datasets with millions of points.
+5. **Authentication:** Add secure user management to allow users to save and share their visualization workspaces.
 
 ## Development Conventions
 

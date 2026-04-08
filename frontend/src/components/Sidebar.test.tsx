@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, Mock } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Sidebar from './Sidebar'
 
@@ -11,7 +11,7 @@ import { useStore } from '../store/useStore'
 
 describe('Sidebar Component', () => {
   it('renders "Datasets" header', () => {
-    (useStore as any).mockReturnValue({
+    (useStore as Mock).mockReturnValue({
       isSidebarOpen: true,
       datasets: [],
       data: [],
@@ -25,7 +25,7 @@ describe('Sidebar Component', () => {
   })
 
   it('shows upload prompt when no datasets are present', () => {
-    (useStore as any).mockReturnValue({
+    (useStore as Mock).mockReturnValue({
       isSidebarOpen: true,
       datasets: [],
       data: [],
@@ -39,7 +39,7 @@ describe('Sidebar Component', () => {
   })
 
   it('is hidden when isSidebarOpen is false', () => {
-     (useStore as any).mockReturnValue({
+     (useStore as Mock).mockReturnValue({
       isSidebarOpen: false,
       datasets: [],
       data: [],
