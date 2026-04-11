@@ -33,6 +33,7 @@ interface GeoFluxState {
   selectedEntity: InspectorEntity | null
   
   // Actions
+  fetchDatasets: () => Promise<void>
   addDataset: (name: string, rawData: Record<string, unknown>[]) => void
   removeDataset: (id: string) => void
   toggleDatasetVisibility: (id: string) => void
@@ -129,31 +130,117 @@ const initialState = {
   },
 }
 
+const API_URL = 'http://localhost:4000'
+
 export const useStore = create<GeoFluxState>((set, get) => ({
   ...initialState,
 
   reset: () => set(initialState),
 
-  addDataset: (name, rawData) => {
-    const id = Math.random().toString(36).substring(7)
-    const color = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'][get().datasets.length % 5]
-    
-    set((state) => ({ 
-      datasets: [...state.datasets, { id, name, color, isVisible: true, data: [] }],
-      activeDatasetId: id
-    }))
-    
-    get().setRawData(rawData)
+  fetchDatasets: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/datasets`)
+      if (!response.ok) throw new Error('Failed to fetch datasets')
+      const data = await response.json()
+      
+      const datasets = data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        color: d.color,
+        isVisible: true,
+        data: d.data as DataPoint[]
+      }))
+      
+      set({ datasets, isLoading: false })
+      get().updateGlobalData()
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
   },
 
-  removeDataset: (id) => set((state) => {
-    const datasets = state.datasets.filter(d => d.id !== id)
-    const activeDatasetId = state.activeDatasetId === id 
-      ? (datasets.length > 0 ? datasets[0].id : null) 
-      : state.activeDatasetId
+  addDataset: async (name, rawData) => {
+    // We first set raw data to trigger mapping
+    get().setRawData(rawData)
     
-    return { datasets, activeDatasetId }
-  }),
+    // After mapping, the active dataset should have the mapped data
+    // But since applyMapping updates the state, we need to wait or get the mapped data
+    // For simplicity, let's just use the logic from applyMapping here for the save
+    const { fieldMapping, transformations } = get()
+    
+    const mappedData: DataPoint[] = rawData.map((d, i) => {
+      let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
+      transformations.filter(t => t.active).forEach(t => {
+        try {
+          const fn = new Function('value', 'row', `return ${t.expression}`)
+          const result = fn(value, d)
+          if (typeof result === 'number' && !isNaN(result)) value = result
+        } catch (e) {}
+      })
+      return {
+        id: `temp-${i}`,
+        datasetId: 'temp',
+        lat: Number(d[fieldMapping.lat] || 0),
+        lng: Number(d[fieldMapping.lng] || 0),
+        value,
+        category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
+        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as any) : undefined,
+        metadata: d
+      }
+    })
+
+    const color = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'][get().datasets.length % 5]
+
+    try {
+      set({ isLoading: true })
+      const response = await fetch(`${API_URL}/datasets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, color, data: mappedData })
+      })
+      
+      if (!response.ok) throw new Error('Failed to save dataset')
+      const savedDataset = await response.json()
+      
+      const newDataset: Dataset = {
+        id: savedDataset.id,
+        name: savedDataset.name,
+        color: savedDataset.color,
+        isVisible: true,
+        data: savedDataset.data as DataPoint[]
+      }
+
+      set((state) => ({ 
+        datasets: [...state.datasets, newDataset],
+        activeDatasetId: savedDataset.id,
+        isLoading: false
+      }))
+      
+      get().updateGlobalData()
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
+
+  removeDataset: async (id) => {
+    try {
+      set({ isLoading: true })
+      const response = await fetch(`${API_URL}/datasets/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete dataset')
+      
+      set((state) => {
+        const datasets = state.datasets.filter(d => d.id !== id)
+        const activeDatasetId = state.activeDatasetId === id 
+          ? (datasets.length > 0 ? datasets[0].id : null) 
+          : state.activeDatasetId
+        
+        return { datasets, activeDatasetId, isLoading: false }
+      })
+      get().updateGlobalData()
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
 
   toggleDatasetVisibility: (id) => {
     set((state) => ({

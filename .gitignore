@@ -37,3 +37,4 @@ geoflux-frontend/
 *.njsproj
 *.sln
 *.sw?
+backend/prisma/dev.db

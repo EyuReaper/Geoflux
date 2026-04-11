@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import Map from './components/Map'
 import Navbar from './components/Navbar'
 import Sidebar from './components/Sidebar'
@@ -9,7 +10,11 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from '
 import { cn } from './lib/utils'
 
 function App() {
-  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, loadDemoData } = useStore()
+  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, loadDemoData, fetchDatasets } = useStore()
+
+  useEffect(() => {
+    fetchDatasets()
+  }, [fetchDatasets])
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#0a0a0a] text-white font-sans selection:bg-cyan-500/30 flex flex-col">

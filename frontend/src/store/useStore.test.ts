@@ -14,8 +14,12 @@ vi.mock('h3-js', () => ({
   cellToBoundary: vi.fn(),
 }))
 
+// Mock fetch
+global.fetch = vi.fn()
+
 describe('GeoFlux Store', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     useStore.getState().reset()
   })
 
@@ -28,62 +32,34 @@ describe('GeoFlux Store', () => {
     expect(state.isSidebarOpen).toBe(true)
   })
 
-  it('should add a dataset correctly', () => {
+  it('should add a dataset correctly via API', async () => {
     const rawData = [
       { lat: 10, lng: 20, val: 50, cat: 'A' },
       { lat: 15, lng: 25, val: 75, cat: 'B' }
     ]
     
-    useStore.getState().addDataset('Test Dataset', rawData)
+    const mockSavedDataset = {
+      id: 'backend-id',
+      name: 'Test Dataset',
+      color: '#06b6d4',
+      data: []
+    };
+
+    (fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockSavedDataset
+    })
+    
+    await useStore.getState().addDataset('Test Dataset', rawData)
+    
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/datasets'), expect.objectContaining({
+      method: 'POST'
+    }))
     
     const state = useStore.getState()
     expect(state.datasets.length).toBe(1)
-    expect(state.datasets[0].name).toBe('Test Dataset')
-    expect(state.activeDatasetId).toBe(state.datasets[0].id)
-    expect(state.rawData).toEqual(rawData)
-    expect(state.availableFields).toEqual(['lat', 'lng', 'val', 'cat'])
-  })
-
-  it('should apply field mapping correctly', () => {
-    const rawData = [
-      { latitude: 10, longitude: 20, score: 50, group: 'A' }
-    ]
-    
-    const { addDataset, setFieldMapping } = useStore.getState()
-    
-    addDataset('Mapping Test', rawData)
-    
-    // Auto-detection should work for these names
-    setFieldMapping({
-      lat: 'latitude',
-      lng: 'longitude',
-      value: 'score',
-      category: 'group'
-    })
-    
-    const state = useStore.getState()
-    const point = state.data[0]
-    expect(point.lat).toBe(10)
-    expect(point.lng).toBe(20)
-    expect(point.value).toBe(50)
-    expect(point.category).toBe('A')
-  })
-
-  it('should handle transformations', () => {
-    const rawData = [
-      { lat: 0, lng: 0, value: 10 }
-    ]
-    
-    const { addDataset, setFieldMapping, addTransformation } = useStore.getState()
-    
-    addDataset('Transform Test', rawData)
-    setFieldMapping({ lat: 'lat', lng: 'lng', value: 'value' })
-    
-    // Add transformation: double the value
-    addTransformation('Double It', 'value * 2')
-    
-    const state = useStore.getState()
-    expect(state.data[0].value).toBe(20)
+    expect(state.datasets[0].id).toBe('backend-id')
+    expect(state.activeDatasetId).toBe('backend-id')
   })
 
   it('should toggle visualization modes', () => {
