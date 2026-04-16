@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import * as h3 from 'h3-js'
-import { useStore } from '../store/useStore'
+import { useStore, API_URL } from '../store/useStore'
 
 const STYLES = {
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
@@ -14,205 +13,95 @@ const Map = () => {
   const map = useRef<maplibregl.Map | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, filteredData: data, activeModes, mapStyle, mapStyleType, setSelectedEntity, datasets } = useStore()
+  const { mapState, setMapState, activeModes, mapStyle, mapStyleType, setSelectedEntity, datasets, filters, timeline } = useStore()
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
     if (!mapInstance || !mapInstance.isStyleLoaded()) return
 
-    // Ensure source exists
-    if (!mapInstance.getSource('geoflux-data')) {
-      mapInstance.addSource('geoflux-data', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: data.map(d => {
-            const dataset = datasets.find(ds => ds.id === d.datasetId)
-            return {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-              properties: { 
-                ...d.metadata, 
-                value: d.value, 
-                category: d.category,
-                datasetId: d.datasetId,
-                datasetColor: dataset?.color 
-              }
-            } as GeoJSON.Feature
-          })
-        }
-      })
-    }
+    // ... (existing clear logic)
+    const existingSources = Object.keys(mapInstance.getStyle().sources || {})
+    const geofluxSources = existingSources.filter(s => s.startsWith('geoflux-'))
+    const geofluxLayers = (mapInstance.getStyle().layers || []).filter(l => l.id.startsWith('geoflux-'))
 
-    const layers = ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
-    layers.forEach(l => {
-      if (mapInstance.getLayer(l)) mapInstance.removeLayer(l)
-    })
+    geofluxLayers.forEach(l => mapInstance.removeLayer(l.id))
+    geofluxSources.forEach(s => mapInstance.removeSource(s))
 
-    // Layer Order: Heatmap (Bottom) -> Area/Choropleth -> Markers (Top)
+    // Build MapLibre filter
+    const mapLibreFilter: any[] = ['all']
     
-    if (activeModes.includes('heatmap')) {
-      mapInstance.addLayer({
-        id: 'geoflux-heatmap',
-        type: 'heatmap',
-        source: 'geoflux-data',
-        paint: {
-          'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
-          'heatmap-intensity': mapStyle.heatmapIntensity,
-          'heatmap-color': [
-            'interpolate', ['linear'], ['heatmap-density'],
-            0, 'rgba(0,0,0,0)',
-            0.2, mapStyle.colorScale[0],
-            0.4, mapStyle.colorScale[1],
-            0.6, mapStyle.colorScale[2],
-            0.8, mapStyle.colorScale[3]
-          ],
-          'heatmap-radius': mapStyle.heatmapRadius,
-          'heatmap-opacity': mapStyle.opacity
-        }
-      })
+    // Value range filter
+    mapLibreFilter.push(['>=', ['get', 'value'], filters.minValue])
+    mapLibreFilter.push(['<=', ['get', 'value'], filters.maxValue])
+    
+    // Category filter
+    if (filters.categories.length > 0) {
+      mapLibreFilter.push(['in', ['get', 'category'], ['literal', filters.categories]])
+    }
+    
+    // Search query filter (simplified for MVT)
+    // Note: Complex metadata search is hard in MapLibre filters without specific fields
+    
+    // Timeline filter
+    if (timeline.startTime !== timeline.endTime) {
+      mapLibreFilter.push(['<=', ['get', 'timestamp'], timeline.currentTime])
     }
 
-    if (activeModes.includes('choropleth')) {
-      let gridFeatures: GeoJSON.Feature[] = []
-
-      if (mapStyle.gridType === 'hex') {
-        const zoom = mapInstance.getZoom()
-        // Improved zoom to H3 resolution mapping
-        const resolution = Math.max(0, Math.min(15, Math.floor(zoom / 1.6) + mapStyle.gridResolution - 3))
-        
-        const h3Grid: Record<string, { count: number; sum: number }> = {}
-        
-        data.forEach(d => {
-          try {
-            const h3Index = h3.latLngToCell(d.lat, d.lng, resolution)
-            if (!h3Grid[h3Index]) {
-              h3Grid[h3Index] = { count: 0, sum: 0 }
-            }
-            h3Grid[h3Index].count++
-            h3Grid[h3Index].sum += d.value || 0
-          } catch {
-            // Ignore points outside valid H3 range
-          }
-        })
-
-        gridFeatures = Object.entries(h3Grid).map(([index, g]) => {
-          const boundary = h3.cellToBoundary(index)
-          const coordinates = [boundary.map(coord => [coord[1], coord[0]])]
-          coordinates[0].push(coordinates[0][0])
-          
-          return {
-            type: 'Feature',
-            geometry: {
-              type: 'Polygon',
-              coordinates
-            },
-            properties: { value: g.sum / g.count, count: g.count, h3Index: index }
-          }
-        })
-      } else {
-        // Dynamic square grid size based on zoom
-        const zoom = mapInstance.getZoom()
-        const gridSize = Math.max(0.1, 10 / Math.pow(2, Math.max(0, zoom - 2))) * (10 / mapStyle.gridResolution)
-        
-        const grid: Record<string, { count: number; sum: number; lat: number; lng: number }> = {}
-        
-        data.forEach(d => {
-          const latBin = Math.floor(d.lat / gridSize) * gridSize
-          const lngBin = Math.floor(d.lng / gridSize) * gridSize
-          const key = `${latBin},${lngBin}`
-          if (!grid[key]) {
-            grid[key] = { count: 0, sum: 0, lat: latBin + gridSize / 2, lng: lngBin + gridSize / 2 }
-          }
-          grid[key].count++
-          grid[key].sum += d.value || 0
-        })
-
-        gridFeatures = Object.values(grid).map(g => ({
-          type: 'Feature',
-          geometry: {
-            type: 'Polygon',
-            coordinates: [[
-              [g.lng - gridSize / 2, g.lat - gridSize / 2],
-              [g.lng + gridSize / 2, g.lat - gridSize / 2],
-              [g.lng + gridSize / 2, g.lat + gridSize / 2],
-              [g.lng - gridSize / 2, g.lat + gridSize / 2],
-              [g.lng - gridSize / 2, g.lat - gridSize / 2]
-            ]]
-          },
-          properties: { value: g.sum / g.count, count: g.count }
-        }))
-      }
-
-      if (mapInstance.getSource('geoflux-grid')) {
-        (mapInstance.getSource('geoflux-grid') as maplibregl.GeoJSONSource).setData({
-          type: 'FeatureCollection',
-          features: gridFeatures as GeoJSON.Feature[]
-        })
-      } else {
-        mapInstance.addSource('geoflux-grid', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: gridFeatures as GeoJSON.Feature[] }
+    // Add MVT Sources for each visible dataset
+    datasets.filter(ds => ds.isVisible).forEach(ds => {
+      const sourceId = `geoflux-source-${ds.id}`
+      
+      if (!mapInstance.getSource(sourceId)) {
+        mapInstance.addSource(sourceId, {
+          type: 'vector',
+          tiles: [`${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`],
+          maxzoom: 14
         })
       }
 
-      if (mapStyle.is3D) {
+      if (activeModes.includes('heatmap')) {
         mapInstance.addLayer({
-          id: 'geoflux-choropleth',
-          type: 'fill-extrusion',
-          source: 'geoflux-grid',
+          id: `geoflux-heatmap-${ds.id}`,
+          type: 'heatmap',
+          source: sourceId,
+          'source-layer': 'geoflux-layer',
+          filter: mapLibreFilter,
           paint: {
-            'fill-extrusion-color': [
-              'interpolate', ['linear'], ['get', 'value'],
+            // ... (existing paint logic)
+            'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
+            'heatmap-intensity': mapStyle.heatmapIntensity,
+            'heatmap-color': [
+              'interpolate', ['linear'], ['heatmap-density'],
               0, 'rgba(0,0,0,0)',
-              25, mapStyle.colorScale[0],
-              50, mapStyle.colorScale[1],
-              75, mapStyle.colorScale[2],
-              100, mapStyle.colorScale[3]
+              0.2, mapStyle.colorScale[0],
+              0.4, mapStyle.colorScale[1],
+              0.6, mapStyle.colorScale[2],
+              0.8, mapStyle.colorScale[3]
             ],
-            'fill-extrusion-height': ['*', ['get', 'value'], 5000], 
-            'fill-extrusion-base': 0,
-            'fill-extrusion-opacity': mapStyle.opacity
+            'heatmap-radius': mapStyle.heatmapRadius,
+            'heatmap-opacity': mapStyle.opacity
           }
         })
-        mapInstance.easeTo({ pitch: 45, duration: 1000 })
-      } else {
-        mapInstance.addLayer({
-          id: 'geoflux-choropleth',
-          type: 'fill',
-          source: 'geoflux-grid',
-          paint: {
-            'fill-color': [
-              'interpolate', ['linear'], ['get', 'value'],
-              0, 'rgba(0,0,0,0)',
-              25, mapStyle.colorScale[0],
-              50, mapStyle.colorScale[1],
-              75, mapStyle.colorScale[2],
-              100, mapStyle.colorScale[3]
-            ],
-            'fill-opacity': mapStyle.opacity,
-            'fill-outline-color': 'rgba(255,255,255,0.1)'
-          }
-        })
-        mapInstance.easeTo({ pitch: 0, duration: 1000 })
       }
-    }
 
-    if (activeModes.includes('markers')) {
-      mapInstance.addLayer({
-        id: 'geoflux-markers',
-        type: 'circle',
-        source: 'geoflux-data',
-        paint: {
-          'circle-radius': mapStyle.pointSize,
-          'circle-color': mapStyle.pointColor,
-          'circle-opacity': mapStyle.opacity,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#fff'
-        }
-      })
-    }
-  }, [activeModes, mapStyle, data, datasets])
+      if (activeModes.includes('markers')) {
+        mapInstance.addLayer({
+          id: `geoflux-markers-${ds.id}`,
+          type: 'circle',
+          source: sourceId,
+          'source-layer': 'geoflux-layer',
+          filter: mapLibreFilter,
+          paint: {
+            'circle-radius': mapStyle.pointSize,
+            'circle-color': ds.color,
+            'circle-opacity': mapStyle.opacity,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#fff'
+          }
+        })
+      }
+    })
+  }, [activeModes, mapStyle, datasets, filters, timeline])
 
   useEffect(() => {
     if (!mapContainer.current) return
@@ -242,8 +131,7 @@ const Map = () => {
       const mapInstance = map.current
       if (!mapInstance || !mapInstance.isStyleLoaded()) return
       
-      const potentialLayers = ['geoflux-markers', 'geoflux-choropleth']
-      const layers = potentialLayers.filter(l => mapInstance.getLayer(l))
+      const layers = mapInstance.getStyle().layers.filter(l => l.id.startsWith('geoflux-')).map(l => l.id)
       
       if (layers.length === 0) return
 
@@ -255,7 +143,7 @@ const Map = () => {
         const feature = features[0]
         const props = feature.properties
         
-        if (feature.layer.id === 'geoflux-markers') {
+        if (feature.layer.id.includes('markers')) {
           setSelectedEntity({
             type: 'point',
             data: {
@@ -263,7 +151,7 @@ const Map = () => {
               metadata: props 
             }
           })
-        } else if (feature.layer.id === 'geoflux-choropleth') {
+        } else if (feature.layer.id.includes('choropleth')) {
           setSelectedEntity({
             type: 'cell',
             data: props
@@ -278,8 +166,7 @@ const Map = () => {
       const mapInstance = map.current
       if (!mapInstance || !mapInstance.isStyleLoaded()) return
       
-      const potentialLayers = ['geoflux-markers', 'geoflux-heatmap', 'geoflux-choropleth']
-      const layers = potentialLayers.filter(l => mapInstance.getLayer(l))
+      const layers = mapInstance.getStyle().layers.filter(l => l.id.startsWith('geoflux-')).map(l => l.id)
       
       if (layers.length === 0) return
 
@@ -343,43 +230,15 @@ const Map = () => {
   }, [mapStyleType, isLoaded])
 
   useEffect(() => {
-    const mapInstance = map.current
-    if (!mapInstance || !isLoaded) return
-
-    const features = data.map(d => {
-      const dataset = datasets.find(ds => ds.id === d.datasetId)
-      return {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-        properties: { 
-          ...d.metadata, 
-          value: d.value, 
-          category: d.category,
-          datasetId: d.datasetId,
-          datasetColor: dataset?.color 
-        }
-      } as GeoJSON.Feature
-    })
-
-    const source = mapInstance.getSource('geoflux-data') as maplibregl.GeoJSONSource
-    if (source) {
-      source.setData({
-        type: 'FeatureCollection',
-        features
-      })
-    }
-
     updateLayers()
     
-    // Ensure map fits container after data load
-    setTimeout(() => {
-      mapInstance.resize()
-    }, 100)
-  }, [data, updateLayers, isLoaded, datasets])
-
-  useEffect(() => {
-    updateLayers()
-  }, [activeModes, mapStyle, updateLayers])
+    const mapInstance = map.current
+    if (mapInstance && isLoaded) {
+      setTimeout(() => {
+        mapInstance.resize()
+      }, 100)
+    }
+  }, [updateLayers, isLoaded])
 
   return (
     <div className="w-full h-full relative bg-[#111]">

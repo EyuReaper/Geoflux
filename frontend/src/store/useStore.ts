@@ -145,7 +145,7 @@ const initialState = {
   },
 }
 
-const API_URL = 'http://localhost:4000'
+export const API_URL = 'http://localhost:4000'
 
 export const useStore = create<GeoFluxState>((set, get) => ({
   ...initialState,
@@ -217,7 +217,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         name: d.name,
         color: d.color,
         isVisible: true,
-        data: d.data as DataPoint[]
+        data: [] // Data is now loaded on demand or via MVT
       }))
       
       set({ datasets, isLoading: false })
@@ -316,7 +316,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         name: savedDataset.name,
         color: savedDataset.color,
         isVisible: true,
-        data: savedDataset.data as DataPoint[]
+        data: [] // Data is served via MVT
       }
 
       set((state) => ({ 
