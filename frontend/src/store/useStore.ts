@@ -1,9 +1,16 @@
 import { create } from 'zustand'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, User } from '../types/index'
 
 interface GeoFluxState {
+  // Auth
+  auth: AuthState
+  login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, name?: string) => Promise<void>
+  logout: () => void
+
   // Data
   datasets: Dataset[]
+  workspaces: Workspace[]
   activeDatasetId: string | null
   transformations: Transformation[]
   data: DataPoint[]
@@ -34,6 +41,8 @@ interface GeoFluxState {
   
   // Actions
   fetchDatasets: () => Promise<void>
+  fetchWorkspaces: () => Promise<void>
+  saveWorkspace: (name: string) => Promise<void>
   addDataset: (name: string, rawData: Record<string, unknown>[]) => void
   removeDataset: (id: string) => void
   toggleDatasetVisibility: (id: string) => void
@@ -79,7 +88,13 @@ const defaultMapping: FieldMapping = {
 }
 
 const initialState = {
+  auth: {
+    user: null,
+    token: localStorage.getItem('geoflux_token'),
+    isAuthenticated: !!localStorage.getItem('geoflux_token')
+  },
   datasets: [] as Dataset[],
+  workspaces: [] as Workspace[],
   activeDatasetId: null as string | null,
   transformations: [] as Transformation[],
   data: [] as DataPoint[],
@@ -135,13 +150,66 @@ const API_URL = 'http://localhost:4000'
 export const useStore = create<GeoFluxState>((set, get) => ({
   ...initialState,
 
-  reset: () => set(initialState),
+  reset: () => {
+    localStorage.removeItem('geoflux_token')
+    set(initialState)
+  },
 
-  fetchDatasets: async () => {
+  login: async (email, password) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await fetch(`${API_URL}/datasets`)
-      if (!response.ok) throw new Error('Failed to fetch datasets')
+      const response = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
+      if (!response.ok) throw new Error('Invalid credentials')
+      const { token, user } = await response.json()
+      localStorage.setItem('geoflux_token', token)
+      set({ auth: { token, user, isAuthenticated: true }, isLoading: false })
+      get().fetchDatasets()
+      get().fetchWorkspaces()
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
+
+  register: async (email, password, name) => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name })
+      })
+      if (!response.ok) throw new Error('Registration failed')
+      const { token, user } = await response.json()
+      localStorage.setItem('geoflux_token', token)
+      set({ auth: { token, user, isAuthenticated: true }, isLoading: false })
+      get().fetchDatasets()
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem('geoflux_token')
+    set({ auth: { token: null, user: null, isAuthenticated: false }, datasets: [], workspaces: [] })
+  },
+
+  fetchDatasets: async () => {
+    const { token } = get().auth
+    if (!token) return
+
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/datasets`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (!response.ok) {
+        if (response.status === 403) get().logout()
+        throw new Error('Failed to fetch datasets')
+      }
       const data = await response.json()
       
       const datasets = data.map((d: any) => ({
@@ -159,13 +227,51 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     }
   },
 
-  addDataset: async (name, rawData) => {
-    // We first set raw data to trigger mapping
-    get().setRawData(rawData)
+  fetchWorkspaces: async () => {
+    const { token } = get().auth
+    if (!token) return
+    try {
+      const response = await fetch(`${API_URL}/workspaces`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const workspaces = await response.json()
+        set({ workspaces })
+      }
+    } catch (err) {}
+  },
+
+  saveWorkspace: async (name) => {
+    const { token } = get().auth
+    if (!token) return
     
-    // After mapping, the active dataset should have the mapped data
-    // But since applyMapping updates the state, we need to wait or get the mapped data
-    // For simplicity, let's just use the logic from applyMapping here for the save
+    const config = {
+      mapState: get().mapState,
+      mapStyle: get().mapStyle,
+      activeModes: get().activeModes,
+      activeDatasetId: get().activeDatasetId
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/workspaces`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, config })
+      })
+      if (response.ok) {
+        get().fetchWorkspaces()
+      }
+    } catch (err) {}
+  },
+
+  addDataset: async (name, rawData) => {
+    const { token } = get().auth
+    if (!token) return
+
+    get().setRawData(rawData)
     const { fieldMapping, transformations } = get()
     
     const mappedData: DataPoint[] = rawData.map((d, i) => {
@@ -195,7 +301,10 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       set({ isLoading: true })
       const response = await fetch(`${API_URL}/datasets`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ name, color, data: mappedData })
       })
       
@@ -223,9 +332,15 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   },
 
   removeDataset: async (id) => {
+    const { token } = get().auth
+    if (!token) return
+
     try {
       set({ isLoading: true })
-      const response = await fetch(`${API_URL}/datasets/${id}`, { method: 'DELETE' })
+      const response = await fetch(`${API_URL}/datasets/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
       if (!response.ok) throw new Error('Failed to delete dataset')
       
       set((state) => {
@@ -291,116 +406,6 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     
     set({ data: allData })
     get().setFilters({})
-  },
-
-  mapState: {
-    lat: 20,
-    lng: 0,
-    zoom: 2,
-    pitch: 0,
-    bearing: 0,
-  },
-  
-  mapStyle: {
-    pointColor: '#06b6d4', 
-    pointSize: 5,
-    opacity: 0.8,
-    heatmapIntensity: 1,
-    heatmapRadius: 30,
-    colorScale: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'],
-    is3D: true,
-    gridType: 'hex',
-    gridResolution: 4,
-  },
-  mapStyleType: 'dark',
-  
-  filters: {
-    minValue: 0,
-    maxValue: 100,
-    categories: [],
-    searchQuery: '',
-  },
-
-  timeline: {
-    currentTime: 0,
-    startTime: 0,
-    endTime: 100,
-    isPlaying: false,
-    speed: 1,
-  },
-  
-  setRawData: (rawData) => {
-    if (rawData.length === 0) {
-      set({ rawData: [], availableFields: [], fieldMapping: defaultMapping })
-      return
-    }
-    
-    const fields = Object.keys(rawData[0])
-    
-    // Auto-detect fields only if current mapping is empty or default
-    const currentMapping = get().fieldMapping
-    const isDefault = currentMapping.lat === '' && currentMapping.lng === ''
-    
-    if (isDefault) {
-      const mapping: FieldMapping = {
-        lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
-        lng: fields.find(f => /lng|long|longitude/i.test(f)) || fields[1] || '',
-        value: fields.find(f => /val|count|intensity|mag|amount/i.test(f)) || '',
-        category: fields.find(f => /cat|type|class|group/i.test(f)) || '',
-        timestamp: fields.find(f => /time|date|recorded/i.test(f)) || ''
-      }
-      set({ fieldMapping: mapping })
-    }
-    
-    set({ rawData, availableFields: fields })
-    get().applyMapping()
-  },
-
-  setFieldMapping: (newMapping) => {
-    set((state) => ({ fieldMapping: { ...state.fieldMapping, ...newMapping } }))
-    get().applyMapping()
-  },
-
-  applyMapping: () => {
-    const { rawData, fieldMapping, activeDatasetId, transformations } = get()
-    if (rawData.length === 0 || !activeDatasetId) return
-
-    const mappedData: DataPoint[] = rawData.map((d, i) => {
-      let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
-
-      // Apply active transformations
-      transformations.filter(t => t.active).forEach(t => {
-        try {
-          // Create a safe-ish evaluation environment
-          const fn = new Function('value', 'row', `return ${t.expression}`)
-          const result = fn(value, d)
-          if (typeof result === 'number' && !isNaN(result)) {
-            value = result
-          }
-        } catch (e) {
-          console.error(`Transformation error in "${t.name}":`, e)
-        }
-      })
-
-      return {
-        id: `${activeDatasetId}-${i}`,
-        datasetId: activeDatasetId,
-        lat: Number(d[fieldMapping.lat] || 0),
-        lng: Number(d[fieldMapping.lng] || 0),
-        value,
-        category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as string | number | Date) : undefined,
-        metadata: d
-      }
-    })
-
-    set((state) => ({
-      datasets: state.datasets.map(d => 
-        d.id === activeDatasetId ? { ...d, data: mappedData } : d
-      )
-    }))
-
-    get().updateGlobalData()
   },
 
   setData: (data) => {
@@ -544,5 +549,37 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   },
   
   setSelectedEntity: (entity) => set({ selectedEntity: entity, isInspectorOpen: !!entity }),
-  closeInspector: () => set({ isInspectorOpen: false, selectedEntity: null })
+  closeInspector: () => set({ isInspectorOpen: false, selectedEntity: null }),
+
+  setRawData: (rawData) => {
+    if (rawData.length === 0) {
+      set({ rawData: [], availableFields: [], fieldMapping: defaultMapping })
+      return
+    }
+    
+    const fields = Object.keys(rawData[0])
+    
+    // Auto-detect fields only if current mapping is empty or default
+    const currentMapping = get().fieldMapping
+    const isDefault = currentMapping.lat === '' && currentMapping.lng === ''
+    
+    if (isDefault) {
+      const mapping: FieldMapping = {
+        lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
+        lng: fields.find(f => /lng|long|longitude/i.test(f)) || fields[1] || '',
+        value: fields.find(f => /val|count|intensity|mag|amount/i.test(f)) || '',
+        category: fields.find(f => /cat|type|class|group/i.test(f)) || '',
+        timestamp: fields.find(f => /time|date|recorded/i.test(f)) || ''
+      }
+      set({ fieldMapping: mapping })
+    }
+    
+    set({ rawData, availableFields: fields })
+    get().applyMapping()
+  },
+
+  setFieldMapping: (newMapping) => {
+    set((state) => ({ fieldMapping: { ...state.fieldMapping, ...newMapping } }))
+    get().applyMapping()
+  }
 }))

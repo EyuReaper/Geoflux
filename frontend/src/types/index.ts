@@ -1,4 +1,23 @@
-export type VisualizationMode = 'markers' | 'heatmap' | 'choropleth';
+export type User = {
+  id: string;
+  email: string;
+  name?: string;
+};
+
+export type AuthState = {
+  user: User | null;
+  token: string | null;
+  isAuthenticated: boolean;
+};
+
+export type Workspace = {
+  id: string;
+  name: string;
+  config: Record<string, any>;
+  updatedAt: string;
+};
+
+export type VisualizationMode = 'markers' | 'heatmap' | 'choropleth' | 'area';
 
 export type DataPoint = {
   id: string | number;

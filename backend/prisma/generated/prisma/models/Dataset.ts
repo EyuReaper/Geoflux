@@ -28,6 +28,7 @@ export type DatasetMinAggregateOutputType = {
   id: string | null
   name: string | null
   color: string | null
+  userId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -36,6 +37,7 @@ export type DatasetMaxAggregateOutputType = {
   id: string | null
   name: string | null
   color: string | null
+  userId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -45,6 +47,7 @@ export type DatasetCountAggregateOutputType = {
   name: number
   color: number
   data: number
+  userId: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -55,6 +58,7 @@ export type DatasetMinAggregateInputType = {
   id?: true
   name?: true
   color?: true
+  userId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -63,6 +67,7 @@ export type DatasetMaxAggregateInputType = {
   id?: true
   name?: true
   color?: true
+  userId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -72,6 +77,7 @@ export type DatasetCountAggregateInputType = {
   name?: true
   color?: true
   data?: true
+  userId?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -154,6 +160,7 @@ export type DatasetGroupByOutputType = {
   name: string
   color: string
   data: runtime.JsonValue
+  userId: string | null
   createdAt: Date
   updatedAt: Date
   _count: DatasetCountAggregateOutputType | null
@@ -184,8 +191,10 @@ export type DatasetWhereInput = {
   name?: Prisma.StringFilter<"Dataset"> | string
   color?: Prisma.StringFilter<"Dataset"> | string
   data?: Prisma.JsonFilter<"Dataset">
+  userId?: Prisma.StringNullableFilter<"Dataset"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
+  user?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }
 
 export type DatasetOrderByWithRelationInput = {
@@ -193,8 +202,10 @@ export type DatasetOrderByWithRelationInput = {
   name?: Prisma.SortOrder
   color?: Prisma.SortOrder
   data?: Prisma.SortOrder
+  userId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  user?: Prisma.UserOrderByWithRelationInput
 }
 
 export type DatasetWhereUniqueInput = Prisma.AtLeast<{
@@ -205,8 +216,10 @@ export type DatasetWhereUniqueInput = Prisma.AtLeast<{
   name?: Prisma.StringFilter<"Dataset"> | string
   color?: Prisma.StringFilter<"Dataset"> | string
   data?: Prisma.JsonFilter<"Dataset">
+  userId?: Prisma.StringNullableFilter<"Dataset"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
+  user?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }, "id">
 
 export type DatasetOrderByWithAggregationInput = {
@@ -214,6 +227,7 @@ export type DatasetOrderByWithAggregationInput = {
   name?: Prisma.SortOrder
   color?: Prisma.SortOrder
   data?: Prisma.SortOrder
+  userId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.DatasetCountOrderByAggregateInput
@@ -229,6 +243,7 @@ export type DatasetScalarWhereWithAggregatesInput = {
   name?: Prisma.StringWithAggregatesFilter<"Dataset"> | string
   color?: Prisma.StringWithAggregatesFilter<"Dataset"> | string
   data?: Prisma.JsonWithAggregatesFilter<"Dataset">
+  userId?: Prisma.StringNullableWithAggregatesFilter<"Dataset"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Dataset"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Dataset"> | Date | string
 }
@@ -240,6 +255,7 @@ export type DatasetCreateInput = {
   data: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  user?: Prisma.UserCreateNestedOneWithoutDatasetsInput
 }
 
 export type DatasetUncheckedCreateInput = {
@@ -247,6 +263,7 @@ export type DatasetUncheckedCreateInput = {
   name: string
   color: string
   data: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  userId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -258,6 +275,7 @@ export type DatasetUpdateInput = {
   data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  user?: Prisma.UserUpdateOneWithoutDatasetsNestedInput
 }
 
 export type DatasetUncheckedUpdateInput = {
@@ -265,6 +283,7 @@ export type DatasetUncheckedUpdateInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  userId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -274,6 +293,7 @@ export type DatasetCreateManyInput = {
   name: string
   color: string
   data: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  userId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -292,8 +312,19 @@ export type DatasetUncheckedUpdateManyInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  userId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type DatasetListRelationFilter = {
+  every?: Prisma.DatasetWhereInput
+  some?: Prisma.DatasetWhereInput
+  none?: Prisma.DatasetWhereInput
+}
+
+export type DatasetOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
 }
 
 export type DatasetCountOrderByAggregateInput = {
@@ -301,6 +332,7 @@ export type DatasetCountOrderByAggregateInput = {
   name?: Prisma.SortOrder
   color?: Prisma.SortOrder
   data?: Prisma.SortOrder
+  userId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -309,6 +341,7 @@ export type DatasetMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   color?: Prisma.SortOrder
+  userId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -317,16 +350,143 @@ export type DatasetMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   color?: Prisma.SortOrder
+  userId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
-export type StringFieldUpdateOperationsInput = {
-  set?: string
+export type DatasetCreateNestedManyWithoutUserInput = {
+  create?: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput> | Prisma.DatasetCreateWithoutUserInput[] | Prisma.DatasetUncheckedCreateWithoutUserInput[]
+  connectOrCreate?: Prisma.DatasetCreateOrConnectWithoutUserInput | Prisma.DatasetCreateOrConnectWithoutUserInput[]
+  createMany?: Prisma.DatasetCreateManyUserInputEnvelope
+  connect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
 }
 
-export type DateTimeFieldUpdateOperationsInput = {
-  set?: Date | string
+export type DatasetUncheckedCreateNestedManyWithoutUserInput = {
+  create?: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput> | Prisma.DatasetCreateWithoutUserInput[] | Prisma.DatasetUncheckedCreateWithoutUserInput[]
+  connectOrCreate?: Prisma.DatasetCreateOrConnectWithoutUserInput | Prisma.DatasetCreateOrConnectWithoutUserInput[]
+  createMany?: Prisma.DatasetCreateManyUserInputEnvelope
+  connect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+}
+
+export type DatasetUpdateManyWithoutUserNestedInput = {
+  create?: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput> | Prisma.DatasetCreateWithoutUserInput[] | Prisma.DatasetUncheckedCreateWithoutUserInput[]
+  connectOrCreate?: Prisma.DatasetCreateOrConnectWithoutUserInput | Prisma.DatasetCreateOrConnectWithoutUserInput[]
+  upsert?: Prisma.DatasetUpsertWithWhereUniqueWithoutUserInput | Prisma.DatasetUpsertWithWhereUniqueWithoutUserInput[]
+  createMany?: Prisma.DatasetCreateManyUserInputEnvelope
+  set?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  disconnect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  delete?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  connect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  update?: Prisma.DatasetUpdateWithWhereUniqueWithoutUserInput | Prisma.DatasetUpdateWithWhereUniqueWithoutUserInput[]
+  updateMany?: Prisma.DatasetUpdateManyWithWhereWithoutUserInput | Prisma.DatasetUpdateManyWithWhereWithoutUserInput[]
+  deleteMany?: Prisma.DatasetScalarWhereInput | Prisma.DatasetScalarWhereInput[]
+}
+
+export type DatasetUncheckedUpdateManyWithoutUserNestedInput = {
+  create?: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput> | Prisma.DatasetCreateWithoutUserInput[] | Prisma.DatasetUncheckedCreateWithoutUserInput[]
+  connectOrCreate?: Prisma.DatasetCreateOrConnectWithoutUserInput | Prisma.DatasetCreateOrConnectWithoutUserInput[]
+  upsert?: Prisma.DatasetUpsertWithWhereUniqueWithoutUserInput | Prisma.DatasetUpsertWithWhereUniqueWithoutUserInput[]
+  createMany?: Prisma.DatasetCreateManyUserInputEnvelope
+  set?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  disconnect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  delete?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  connect?: Prisma.DatasetWhereUniqueInput | Prisma.DatasetWhereUniqueInput[]
+  update?: Prisma.DatasetUpdateWithWhereUniqueWithoutUserInput | Prisma.DatasetUpdateWithWhereUniqueWithoutUserInput[]
+  updateMany?: Prisma.DatasetUpdateManyWithWhereWithoutUserInput | Prisma.DatasetUpdateManyWithWhereWithoutUserInput[]
+  deleteMany?: Prisma.DatasetScalarWhereInput | Prisma.DatasetScalarWhereInput[]
+}
+
+export type DatasetCreateWithoutUserInput = {
+  id?: string
+  name: string
+  color: string
+  data: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type DatasetUncheckedCreateWithoutUserInput = {
+  id?: string
+  name: string
+  color: string
+  data: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type DatasetCreateOrConnectWithoutUserInput = {
+  where: Prisma.DatasetWhereUniqueInput
+  create: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput>
+}
+
+export type DatasetCreateManyUserInputEnvelope = {
+  data: Prisma.DatasetCreateManyUserInput | Prisma.DatasetCreateManyUserInput[]
+}
+
+export type DatasetUpsertWithWhereUniqueWithoutUserInput = {
+  where: Prisma.DatasetWhereUniqueInput
+  update: Prisma.XOR<Prisma.DatasetUpdateWithoutUserInput, Prisma.DatasetUncheckedUpdateWithoutUserInput>
+  create: Prisma.XOR<Prisma.DatasetCreateWithoutUserInput, Prisma.DatasetUncheckedCreateWithoutUserInput>
+}
+
+export type DatasetUpdateWithWhereUniqueWithoutUserInput = {
+  where: Prisma.DatasetWhereUniqueInput
+  data: Prisma.XOR<Prisma.DatasetUpdateWithoutUserInput, Prisma.DatasetUncheckedUpdateWithoutUserInput>
+}
+
+export type DatasetUpdateManyWithWhereWithoutUserInput = {
+  where: Prisma.DatasetScalarWhereInput
+  data: Prisma.XOR<Prisma.DatasetUpdateManyMutationInput, Prisma.DatasetUncheckedUpdateManyWithoutUserInput>
+}
+
+export type DatasetScalarWhereInput = {
+  AND?: Prisma.DatasetScalarWhereInput | Prisma.DatasetScalarWhereInput[]
+  OR?: Prisma.DatasetScalarWhereInput[]
+  NOT?: Prisma.DatasetScalarWhereInput | Prisma.DatasetScalarWhereInput[]
+  id?: Prisma.StringFilter<"Dataset"> | string
+  name?: Prisma.StringFilter<"Dataset"> | string
+  color?: Prisma.StringFilter<"Dataset"> | string
+  data?: Prisma.JsonFilter<"Dataset">
+  userId?: Prisma.StringNullableFilter<"Dataset"> | string | null
+  createdAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"Dataset"> | Date | string
+}
+
+export type DatasetCreateManyUserInput = {
+  id?: string
+  name: string
+  color: string
+  data: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type DatasetUpdateWithoutUserInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  color?: Prisma.StringFieldUpdateOperationsInput | string
+  data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type DatasetUncheckedUpdateWithoutUserInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  color?: Prisma.StringFieldUpdateOperationsInput | string
+  data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type DatasetUncheckedUpdateManyWithoutUserInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  color?: Prisma.StringFieldUpdateOperationsInput | string
+  data?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 
@@ -336,8 +496,10 @@ export type DatasetSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   name?: boolean
   color?: boolean
   data?: boolean
+  userId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
 }, ExtArgs["result"]["dataset"]>
 
 export type DatasetSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -345,8 +507,10 @@ export type DatasetSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   name?: boolean
   color?: boolean
   data?: boolean
+  userId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
 }, ExtArgs["result"]["dataset"]>
 
 export type DatasetSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -354,8 +518,10 @@ export type DatasetSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   name?: boolean
   color?: boolean
   data?: boolean
+  userId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
 }, ExtArgs["result"]["dataset"]>
 
 export type DatasetSelectScalar = {
@@ -363,20 +529,33 @@ export type DatasetSelectScalar = {
   name?: boolean
   color?: boolean
   data?: boolean
+  userId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type DatasetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "color" | "data" | "createdAt" | "updatedAt", ExtArgs["result"]["dataset"]>
+export type DatasetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "color" | "data" | "userId" | "createdAt" | "updatedAt", ExtArgs["result"]["dataset"]>
+export type DatasetInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
+}
+export type DatasetIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
+}
+export type DatasetIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  user?: boolean | Prisma.Dataset$userArgs<ExtArgs>
+}
 
 export type $DatasetPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Dataset"
-  objects: {}
+  objects: {
+    user: Prisma.$UserPayload<ExtArgs> | null
+  }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     name: string
     color: string
     data: runtime.JsonValue
+    userId: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["dataset"]>
@@ -773,6 +952,7 @@ readonly fields: DatasetFieldRefs;
  */
 export interface Prisma__DatasetClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
+  user<T extends Prisma.Dataset$userArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Dataset$userArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -806,6 +986,7 @@ export interface DatasetFieldRefs {
   readonly name: Prisma.FieldRef<"Dataset", 'String'>
   readonly color: Prisma.FieldRef<"Dataset", 'String'>
   readonly data: Prisma.FieldRef<"Dataset", 'Json'>
+  readonly userId: Prisma.FieldRef<"Dataset", 'String'>
   readonly createdAt: Prisma.FieldRef<"Dataset", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Dataset", 'DateTime'>
 }
@@ -825,6 +1006,10 @@ export type DatasetFindUniqueArgs<ExtArgs extends runtime.Types.Extensions.Inter
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
+  /**
    * Filter, which Dataset to fetch.
    */
   where: Prisma.DatasetWhereUniqueInput
@@ -843,6 +1028,10 @@ export type DatasetFindUniqueOrThrowArgs<ExtArgs extends runtime.Types.Extension
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
+  /**
    * Filter, which Dataset to fetch.
    */
   where: Prisma.DatasetWhereUniqueInput
@@ -860,6 +1049,10 @@ export type DatasetFindFirstArgs<ExtArgs extends runtime.Types.Extensions.Intern
    * Omit specific fields from the Dataset
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
   /**
    * Filter, which Dataset to fetch.
    */
@@ -909,6 +1102,10 @@ export type DatasetFindFirstOrThrowArgs<ExtArgs extends runtime.Types.Extensions
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
+  /**
    * Filter, which Dataset to fetch.
    */
   where?: Prisma.DatasetWhereInput
@@ -956,6 +1153,10 @@ export type DatasetFindManyArgs<ExtArgs extends runtime.Types.Extensions.Interna
    * Omit specific fields from the Dataset
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
   /**
    * Filter, which Datasets to fetch.
    */
@@ -1005,6 +1206,10 @@ export type DatasetCreateArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
+  /**
    * The data needed to create a Dataset.
    */
   data: Prisma.XOR<Prisma.DatasetCreateInput, Prisma.DatasetUncheckedCreateInput>
@@ -1036,6 +1241,10 @@ export type DatasetCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensi
    * The data used to create many Datasets.
    */
   data: Prisma.DatasetCreateManyInput | Prisma.DatasetCreateManyInput[]
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetIncludeCreateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1050,6 +1259,10 @@ export type DatasetUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    * Omit specific fields from the Dataset
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
   /**
    * The data needed to update a Dataset.
    */
@@ -1102,6 +1315,10 @@ export type DatasetUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensi
    * Limit how many Datasets to update.
    */
   limit?: number
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetIncludeUpdateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1116,6 +1333,10 @@ export type DatasetUpsertArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    * Omit specific fields from the Dataset
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
   /**
    * The filter to search for the Dataset to update in case it exists.
    */
@@ -1143,6 +1364,10 @@ export type DatasetDeleteArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
+  /**
    * Filter which Dataset to delete.
    */
   where: Prisma.DatasetWhereUniqueInput
@@ -1163,6 +1388,25 @@ export type DatasetDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.Inter
 }
 
 /**
+ * Dataset.user
+ */
+export type Dataset$userArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the User
+   */
+  select?: Prisma.UserSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the User
+   */
+  omit?: Prisma.UserOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserInclude<ExtArgs> | null
+  where?: Prisma.UserWhereInput
+}
+
+/**
  * Dataset without action
  */
 export type DatasetDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1174,4 +1418,8 @@ export type DatasetDefaultArgs<ExtArgs extends runtime.Types.Extensions.Internal
    * Omit specific fields from the Dataset
    */
   omit?: Prisma.DatasetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetInclude<ExtArgs> | null
 }

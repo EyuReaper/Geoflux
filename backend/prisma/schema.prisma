@@ -7,11 +7,34 @@ generator client {
   output   = "./generated/prisma"
 }
 
+model User {
+  id         String      @id @default(uuid())
+  email      String      @unique
+  password   String
+  name       String?
+  datasets   Dataset[]
+  workspaces Workspace[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
 model Dataset {
   id        String   @id @default(uuid())
   name      String
   color     String
   data      Json
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  config    Json     // Stores map position, active layers, etc.
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
