@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, User } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace } from '../types/index'
 
 interface GeoFluxState {
   // Auth
@@ -38,7 +38,6 @@ interface GeoFluxState {
   
   // Selection
   selectedEntity: InspectorEntity | null
-  
   // Actions
   fetchDatasets: () => Promise<void>
   fetchWorkspaces: () => Promise<void>
@@ -47,8 +46,11 @@ interface GeoFluxState {
   removeDataset: (id: string) => void
   toggleDatasetVisibility: (id: string) => void
   setActiveDataset: (id: string | null) => void
-  
+  setViewportFilteredData: (data: DataPoint[]) => void
+
   addTransformation: (name: string, expression: string) => void
+  // ...
+
   removeTransformation: (id: string) => void
   toggleTransformation: (id: string) => void
   
@@ -197,6 +199,10 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     set({ auth: { token: null, user: null, isAuthenticated: false }, datasets: [], workspaces: [] })
   },
 
+  setViewportFilteredData: (viewportFilteredData) => {
+    set({ viewportFilteredData })
+  },
+
   fetchDatasets: async () => {
     const { token } = get().auth
     if (!token) return
@@ -212,12 +218,30 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       }
       const data = await response.json()
       
-      const datasets = data.map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        color: d.color,
-        isVisible: true,
-        data: [] // Data is now loaded on demand or via MVT
+      const datasets = await Promise.all(data.map(async (d: any) => {
+        // Fetch stats for each dataset
+        try {
+          const statsRes = await fetch(`${API_URL}/datasets/${d.id}/stats`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          const stats = statsRes.ok ? await statsRes.json() : undefined
+          return {
+            id: d.id,
+            name: d.name,
+            color: d.color,
+            isVisible: true,
+            data: [],
+            stats
+          }
+        } catch (e) {
+          return {
+            id: d.id,
+            name: d.name,
+            color: d.color,
+            isVisible: true,
+            data: []
+          }
+        }
       }))
       
       set({ datasets, isLoading: false })
@@ -311,12 +335,22 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       if (!response.ok) throw new Error('Failed to save dataset')
       const savedDataset = await response.json()
       
+      // Fetch stats for the new dataset
+      let stats;
+      try {
+        const statsRes = await fetch(`${API_URL}/datasets/${savedDataset.id}/stats`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (statsRes.ok) stats = await statsRes.json()
+      } catch (e) {}
+
       const newDataset: Dataset = {
         id: savedDataset.id,
         name: savedDataset.name,
         color: savedDataset.color,
         isVisible: true,
-        data: [] // Data is served via MVT
+        data: [], // Data is served via MVT
+        stats
       }
 
       set((state) => ({ 
@@ -439,18 +473,20 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       mapState: { ...prev.mapState, ...state } 
     }))
     
-    // Filter by bounds if they changed or exist
-    const { mapState, filteredData } = get()
-    if (!mapState.bounds) {
-      set({ viewportFilteredData: filteredData })
-      return
-    }
+    // Only filter by bounds if we have in-memory data
+    const { mapState, filteredData, data } = get()
+    if (data.length > 0) {
+      if (!mapState.bounds) {
+        set({ viewportFilteredData: filteredData })
+        return
+      }
 
-    const { sw, ne } = mapState.bounds
-    const viewportFilteredData = filteredData.filter(d => 
-      d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
-    )
-    set({ viewportFilteredData })
+      const { sw, ne } = mapState.bounds
+      const viewportFilteredData = filteredData.filter(d => 
+        d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
+      )
+      set({ viewportFilteredData })
+    }
   },
   updateMapStyle: (style) => set((prev) => ({ 
     mapStyle: { ...prev.mapStyle, ...style } 
@@ -461,34 +497,38 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     const state = get()
     const filters = { ...state.filters, ...newFilters }
     
-    const filteredData = state.data.filter(d => {
-      const val = d.value || 0
-      const matchesValue = val >= filters.minValue && val <= filters.maxValue
-      const matchesCategory = filters.categories.length === 0 || (d.category && filters.categories.includes(d.category))
-      const matchesSearch = !filters.searchQuery || 
-        JSON.stringify(d.metadata || {}).toLowerCase().includes(filters.searchQuery.toLowerCase())
-      
-      let matchesTime = true
-      if (state.timeline.startTime !== state.timeline.endTime) {
-        const dTime = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()
-        if (dTime > 0) {
-          matchesTime = dTime <= state.timeline.currentTime
+    // Only filter if we have in-memory data
+    if (state.data.length > 0) {
+      const filteredData = state.data.filter(d => {
+        const val = d.value || 0
+        const matchesValue = val >= filters.minValue && val <= filters.maxValue
+        const matchesCategory = filters.categories.length === 0 || (d.category && filters.categories.includes(d.category))
+        const matchesSearch = !filters.searchQuery || 
+          JSON.stringify(d.metadata || {}).toLowerCase().includes(filters.searchQuery.toLowerCase())
+        
+        let matchesTime = true
+        if (state.timeline.startTime !== state.timeline.endTime) {
+          const dTime = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()
+          if (dTime > 0) {
+            matchesTime = dTime <= state.timeline.currentTime
+          }
         }
+        
+        return matchesValue && matchesCategory && matchesSearch && matchesTime
+      })
+      
+      let viewportFilteredData = filteredData
+      if (state.mapState.bounds) {
+        const { sw, ne } = state.mapState.bounds
+        viewportFilteredData = filteredData.filter(d => 
+          d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
+        )
       }
       
-      return matchesValue && matchesCategory && matchesSearch && matchesTime
-    })
-    
-    // Also apply viewport bounds if they exist
-    let viewportFilteredData = filteredData
-    if (state.mapState.bounds) {
-      const { sw, ne } = state.mapState.bounds
-      viewportFilteredData = filteredData.filter(d => 
-        d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
-      )
+      set({ filters, filteredData, viewportFilteredData })
+    } else {
+      set({ filters })
     }
-    
-    set({ filters, filteredData, viewportFilteredData })
   },
 
   setTimeline: (newTimeline) => {
@@ -576,6 +616,34 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     
     set({ rawData, availableFields: fields })
     get().applyMapping()
+  },
+
+  applyMapping: () => {
+    const { rawData, fieldMapping, transformations } = get()
+    if (rawData.length === 0) return
+    
+    const mappedData: DataPoint[] = rawData.map((d, i) => {
+      let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
+      transformations.filter(t => t.active).forEach(t => {
+        try {
+          const fn = new Function('value', 'row', `return ${t.expression}`)
+          const result = fn(value, d)
+          if (typeof result === 'number' && !isNaN(result)) value = result
+        } catch (e) {}
+      })
+      return {
+        id: `temp-${i}`,
+        datasetId: 'temp',
+        lat: Number(d[fieldMapping.lat] || 0),
+        lng: Number(d[fieldMapping.lng] || 0),
+        value,
+        category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
+        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as any) : undefined,
+        metadata: d
+      }
+    })
+    
+    get().setData(mappedData)
   },
 
   setFieldMapping: (newMapping) => {

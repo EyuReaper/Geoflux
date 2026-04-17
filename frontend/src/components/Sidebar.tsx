@@ -38,9 +38,17 @@ const Sidebar = () => {
 
   const categories = useMemo(() => {
     const cats = new Set<string>()
-    data.forEach(d => { if (d.category) cats.add(d.category) })
+    // If we have global data (small datasets), use it
+    if (data.length > 0) {
+      data.forEach(d => { if (d.category) cats.add(d.category) })
+    } else {
+      // Otherwise use stats from visible datasets (MVT mode)
+      datasets.filter(ds => ds.isVisible).forEach(ds => {
+        ds.stats?.categories.forEach(c => cats.add(c))
+      })
+    }
     return Array.from(cats)
-  }, [data])
+  }, [data, datasets])
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -145,7 +153,9 @@ const Sidebar = () => {
                     />
                     <div className="overflow-hidden">
                       <div className="text-xs font-bold text-white truncate">{ds.name}</div>
-                      <div className="text-[10px] text-white/40">{ds.data.length} points</div>
+                      <div className="text-[10px] text-white/40">
+                        {ds.data.length > 0 ? ds.data.length : (ds.stats?.count || 0)} points
+                      </div>
                     </div>
                   </div>
                   

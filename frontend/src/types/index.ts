@@ -44,6 +44,13 @@ export type Dataset = {
   color: string;
   isVisible: boolean;
   data: DataPoint[];
+  // Metadata for stats when data is empty (MVT mode)
+  stats?: {
+    count: number;
+    categories: string[];
+    min: number;
+    max: number;
+  };
 };
 
 export type FilterState = {

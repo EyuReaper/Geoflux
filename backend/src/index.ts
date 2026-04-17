@@ -91,11 +91,58 @@ app.get("/datasets", authenticateToken as any, async (req: AuthRequest, res) => 
   }
 });
 
+app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const dataset = await prisma.dataset.findUnique({
+      where: { id },
+    });
+    
+    if (!dataset || dataset.userId !== req.user?.id) {
+      return res.status(404).json({ error: "Dataset not found" });
+    }
+
+    const data = dataset.data as any[];
+    if (!data || data.length === 0) {
+      return res.json({ min: 0, max: 0, categories: [], count: 0 });
+    }
+
+    let min = Infinity;
+    let max = -Infinity;
+    const categories = new Set<string>();
+
+    data.forEach(d => {
+      const v = d.value || 0;
+      if (v < min) min = v;
+      if (v > max) max = v;
+      if (d.category) categories.add(d.category);
+    });
+
+    res.json({
+      min: min === Infinity ? 0 : min,
+      max: max === -Infinity ? 0 : max,
+      categories: Array.from(categories),
+      count: data.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch stats" });
+  }
+});
+
 app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const dataset = await prisma.dataset.findUnique({
       where: { id },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        userId: true,
+        createdAt: true,
+        updatedAt: true,
+        // Explicitly exclude 'data' field here for general info requests
+      }
     });
     
     if (!dataset || dataset.userId !== req.user?.id) {

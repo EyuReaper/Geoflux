@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Upload, Share2, Play, Activity, LogIn, LogOut, Save } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { AuthModal } from './AuthModal'

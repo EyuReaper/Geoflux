@@ -13,43 +13,45 @@ const Map = () => {
   const map = useRef<maplibregl.Map | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { mapState, setMapState, activeModes, mapStyle, mapStyleType, setSelectedEntity, datasets, filters, timeline } = useStore()
+  const { 
+    mapState, setMapState, activeModes, mapStyle, 
+    mapStyleType, setSelectedEntity, datasets, filters, 
+    timeline, setViewportFilteredData
+  } = useStore()
+
+  // Track added layers and sources to manage them surgically
+  const activeResources = useRef<{
+    sources: Set<string>,
+    layers: Set<string>
+  }>({
+    sources: new Set(),
+    layers: new Set()
+  })
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
     if (!mapInstance || !mapInstance.isStyleLoaded()) return
 
-    // ... (existing clear logic)
-    const existingSources = Object.keys(mapInstance.getStyle().sources || {})
-    const geofluxSources = existingSources.filter(s => s.startsWith('geoflux-'))
-    const geofluxLayers = (mapInstance.getStyle().layers || []).filter(l => l.id.startsWith('geoflux-'))
-
-    geofluxLayers.forEach(l => mapInstance.removeLayer(l.id))
-    geofluxSources.forEach(s => mapInstance.removeSource(s))
+    const visibleDatasets = datasets.filter(ds => ds.isVisible)
+    const newSourceIds = new Set<string>()
+    const newLayerIds = new Set<string>()
 
     // Build MapLibre filter
     const mapLibreFilter: any[] = ['all']
-    
-    // Value range filter
     mapLibreFilter.push(['>=', ['get', 'value'], filters.minValue])
     mapLibreFilter.push(['<=', ['get', 'value'], filters.maxValue])
     
-    // Category filter
     if (filters.categories.length > 0) {
       mapLibreFilter.push(['in', ['get', 'category'], ['literal', filters.categories]])
     }
     
-    // Search query filter (simplified for MVT)
-    // Note: Complex metadata search is hard in MapLibre filters without specific fields
-    
-    // Timeline filter
     if (timeline.startTime !== timeline.endTime) {
       mapLibreFilter.push(['<=', ['get', 'timestamp'], timeline.currentTime])
     }
 
-    // Add MVT Sources for each visible dataset
-    datasets.filter(ds => ds.isVisible).forEach(ds => {
+    visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
+      newSourceIds.add(sourceId)
       
       if (!mapInstance.getSource(sourceId)) {
         mapInstance.addSource(sourceId, {
@@ -59,48 +61,126 @@ const Map = () => {
         })
       }
 
+      // 1. Heatmap Layer
       if (activeModes.includes('heatmap')) {
-        mapInstance.addLayer({
-          id: `geoflux-heatmap-${ds.id}`,
-          type: 'heatmap',
-          source: sourceId,
-          'source-layer': 'geoflux-layer',
-          filter: mapLibreFilter,
-          paint: {
-            // ... (existing paint logic)
-            'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
-            'heatmap-intensity': mapStyle.heatmapIntensity,
-            'heatmap-color': [
-              'interpolate', ['linear'], ['heatmap-density'],
-              0, 'rgba(0,0,0,0)',
-              0.2, mapStyle.colorScale[0],
-              0.4, mapStyle.colorScale[1],
-              0.6, mapStyle.colorScale[2],
-              0.8, mapStyle.colorScale[3]
-            ],
-            'heatmap-radius': mapStyle.heatmapRadius,
-            'heatmap-opacity': mapStyle.opacity
-          }
-        })
+        const layerId = `geoflux-heatmap-${ds.id}`
+        newLayerIds.add(layerId)
+        if (!mapInstance.getLayer(layerId)) {
+          mapInstance.addLayer({
+            id: layerId,
+            type: 'heatmap',
+            source: sourceId,
+            'source-layer': 'geoflux-layer',
+            paint: {}
+          }, 'waterway') // Try to place below labels
+        }
+        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setPaintProperty(layerId, 'heatmap-weight', ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1])
+        mapInstance.setPaintProperty(layerId, 'heatmap-intensity', mapStyle.heatmapIntensity)
+        mapInstance.setPaintProperty(layerId, 'heatmap-color', [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0,0,0,0)',
+          0.2, mapStyle.colorScale[0],
+          0.4, mapStyle.colorScale[1],
+          0.6, mapStyle.colorScale[2],
+          0.8, mapStyle.colorScale[3]
+        ])
+        mapInstance.setPaintProperty(layerId, 'heatmap-radius', mapStyle.heatmapRadius)
+        mapInstance.setPaintProperty(layerId, 'heatmap-opacity', mapStyle.opacity)
       }
 
+      // 2. Choropleth / Area (Grid-like) Layer
+      // We use circles with large radius and pitch-alignment to simulate cells
+      if (activeModes.includes('choropleth') || activeModes.includes('area')) {
+        const layerId = `geoflux-area-${ds.id}`
+        newLayerIds.add(layerId)
+        if (!mapInstance.getLayer(layerId)) {
+          mapInstance.addLayer({
+            id: layerId,
+            type: 'circle',
+            source: sourceId,
+            'source-layer': 'geoflux-layer',
+            paint: {
+              'circle-pitch-alignment': 'map',
+              'circle-pitch-scale': 'viewport',
+              'circle-stroke-width': 1,
+              'circle-stroke-color': 'rgba(255,255,255,0.1)'
+            }
+          })
+        }
+        
+        const baseRadius = 10 * Math.pow(2, mapStyle.gridResolution - 4)
+        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setPaintProperty(layerId, 'circle-radius', [
+          'interpolate', ['exponential', 2], ['zoom'],
+          0, baseRadius / 10,
+          20, baseRadius * 100
+        ])
+        mapInstance.setPaintProperty(layerId, 'circle-color', [
+          'interpolate', ['linear'], ['get', 'value'],
+          0, 'rgba(0,0,0,0)',
+          10, mapStyle.colorScale[0],
+          30, mapStyle.colorScale[1],
+          60, mapStyle.colorScale[2],
+          100, mapStyle.colorScale[3]
+        ])
+        mapInstance.setPaintProperty(layerId, 'circle-opacity', mapStyle.opacity)
+        
+        // 3D effect if enabled
+        if (mapStyle.is3D) {
+          // Circle doesn't support extrusion, but we can use circle-blur to make it look deeper
+          mapInstance.setPaintProperty(layerId, 'circle-blur', 0.2)
+        } else {
+          mapInstance.setPaintProperty(layerId, 'circle-blur', 0)
+        }
+      }
+
+      // 3. Markers Layer
       if (activeModes.includes('markers')) {
-        mapInstance.addLayer({
-          id: `geoflux-markers-${ds.id}`,
-          type: 'circle',
-          source: sourceId,
-          'source-layer': 'geoflux-layer',
-          filter: mapLibreFilter,
-          paint: {
-            'circle-radius': mapStyle.pointSize,
-            'circle-color': ds.color,
-            'circle-opacity': mapStyle.opacity,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#fff'
-          }
-        })
+        const layerId = `geoflux-markers-${ds.id}`
+        newLayerIds.add(layerId)
+        if (!mapInstance.getLayer(layerId)) {
+          mapInstance.addLayer({
+            id: layerId,
+            type: 'circle',
+            source: sourceId,
+            'source-layer': 'geoflux-layer',
+            paint: {
+              'circle-stroke-width': 1,
+              'circle-stroke-color': '#fff',
+              'circle-stroke-opacity': 0.5
+            }
+          })
+        }
+        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setPaintProperty(layerId, 'circle-radius', [
+          'interpolate', ['linear'], ['zoom'],
+          5, mapStyle.pointSize,
+          15, mapStyle.pointSize * 2
+        ])
+        mapInstance.setPaintProperty(layerId, 'circle-color', ds.color)
+        mapInstance.setPaintProperty(layerId, 'circle-opacity', mapStyle.opacity)
       }
     })
+
+    // Remove unused layers
+    activeResources.current.layers.forEach(layerId => {
+      if (!newLayerIds.has(layerId)) {
+        if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
+      }
+    })
+
+    // Remove unused sources
+    activeResources.current.sources.forEach(sourceId => {
+      if (!newSourceIds.has(sourceId)) {
+        // Must remove all layers using this source first (they should be in unused layers)
+        if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
+      }
+    })
+
+    activeResources.current.layers = newLayerIds
+    activeResources.current.sources = newSourceIds
+
   }, [activeModes, mapStyle, datasets, filters, timeline])
 
   useEffect(() => {
@@ -121,7 +201,8 @@ const Map = () => {
       
       popup.current = new maplibregl.Popup({
         closeButton: false,
-        closeOnClick: false
+        closeOnClick: false,
+        className: 'geoflux-popup'
       })
       
       updateLayers()
@@ -131,32 +212,25 @@ const Map = () => {
       const mapInstance = map.current
       if (!mapInstance || !mapInstance.isStyleLoaded()) return
       
-      const layers = mapInstance.getStyle().layers.filter(l => l.id.startsWith('geoflux-')).map(l => l.id)
-      
+      const layers = Array.from(activeResources.current.layers)
       if (layers.length === 0) return
 
-      const features = mapInstance.queryRenderedFeatures(e.point, {
-        layers
-      })
+      const features = mapInstance.queryRenderedFeatures(e.point, { layers })
 
       if (features.length > 0) {
         const feature = features[0]
         const props = feature.properties
         
-        if (feature.layer.id.includes('markers')) {
-          setSelectedEntity({
-            type: 'point',
-            data: {
-              ...props,
-              metadata: props 
-            }
-          })
-        } else if (feature.layer.id.includes('choropleth')) {
-          setSelectedEntity({
-            type: 'cell',
-            data: props
-          })
-        }
+        setSelectedEntity({
+          type: feature.layer.id.includes('area') ? 'cell' : 'point',
+          data: {
+            ...props,
+            id: props.id || Math.random(),
+            lat: e.lngLat.lat, // Approximate if not in props
+            lng: e.lngLat.lng,
+            metadata: props 
+          }
+        })
       } else {
         setSelectedEntity(null)
       }
@@ -166,27 +240,35 @@ const Map = () => {
       const mapInstance = map.current
       if (!mapInstance || !mapInstance.isStyleLoaded()) return
       
-      const layers = mapInstance.getStyle().layers.filter(l => l.id.startsWith('geoflux-')).map(l => l.id)
-      
+      const layers = Array.from(activeResources.current.layers)
       if (layers.length === 0) return
 
-      const features = mapInstance.queryRenderedFeatures(e.point, {
-        layers
-      })
+      const features = mapInstance.queryRenderedFeatures(e.point, { layers })
 
       if (features.length > 0) {
         mapInstance.getCanvas().style.cursor = 'pointer'
-        const feature = features[0]
-        const props = feature.properties
+        const props = features[0].properties
         
         popup.current
           ?.setLngLat(e.lngLat)
           .setHTML(`
-            <div style="padding: 10px; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-family: sans-serif; min-width: 120px;">
-              <div style="font-size: 10px; opacity: 0.4; text-transform: uppercase; font-weight: bold; margin-bottom: 4px;">Value</div>
-              <div style="font-size: 14px; font-weight: bold; color: #06b6d4;">${(props.value || 0).toFixed(2)}</div>
-              ${props.category ? `<div style="font-size: 10px; margin-top: 4px; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; display: inline-block;">${props.category}</div>` : ''}
-              ${props.count ? `<div style="font-size: 9px; opacity: 0.3; margin-top: 4px;">Aggregated points: ${props.count}</div>` : ''}
+            <div style="padding: 12px; background: rgba(10,10,10,0.9); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; color: white; font-family: 'Inter', sans-serif; min-width: 140px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
+              <div style="font-size: 9px; opacity: 0.5; text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em; margin-bottom: 6px;">Data Insights</div>
+              <div style="display: flex; align-items: baseline; gap: 4px;">
+                <div style="font-size: 18px; font-weight: 900; color: #06b6d4;">${(props.value || 0).toFixed(2)}</div>
+                <div style="font-size: 10px; opacity: 0.4;">units</div>
+              </div>
+              ${props.category ? `
+                <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+                  <div style="width: 6px; h-6px; border-radius: 50%; background: #06b6d4;"></div>
+                  <div style="font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.8);">${props.category}</div>
+                </div>
+              ` : ''}
+              ${props.timestamp ? `
+                <div style="font-size: 9px; opacity: 0.3; margin-top: 6px; font-mono">
+                  ${new Date(props.timestamp).toLocaleString()}
+                </div>
+              ` : ''}
             </div>
           `)
           .addTo(mapInstance)
@@ -196,11 +278,33 @@ const Map = () => {
       }
     })
 
-    m.on('styledata', () => {
-      updateLayers()
-    })
+    const updateViewportData = () => {
+      const mapInstance = map.current
+      if (!mapInstance) return
 
-    m.on('move', () => {
+      const layers = Array.from(activeResources.current.layers)
+      if (layers.length === 0) {
+        setViewportFilteredData([])
+        return
+      }
+
+      const features = mapInstance.queryRenderedFeatures({ layers })
+      
+      const dataPoints = features.map(f => ({
+        id: f.properties?.id || Math.random(),
+        datasetId: f.layer.id.split('-').pop() || '',
+        lat: (f.geometry as any).type === 'Point' ? (f.geometry as any).coordinates[1] : 0,
+        lng: (f.geometry as any).type === 'Point' ? (f.geometry as any).coordinates[0] : 0,
+        value: f.properties?.value,
+        category: f.properties?.category,
+        timestamp: f.properties?.timestamp,
+        metadata: f.properties || {}
+      }))
+
+      setViewportFilteredData(dataPoints)
+    }
+
+    m.on('moveend', () => {
       const { lng, lat } = m.getCenter()
       const b = m.getBounds()
       setMapState({
@@ -214,6 +318,11 @@ const Map = () => {
           ne: [b.getEast(), b.getNorth()]
         }
       })
+      updateViewportData()
+    })
+
+    m.on('styledata', () => {
+      updateLayers()
     })
 
     return () => {
@@ -241,16 +350,35 @@ const Map = () => {
   }, [updateLayers, isLoaded])
 
   return (
-    <div className="w-full h-full relative bg-[#111]">
+    <div className="w-full h-full relative bg-[#050505]">
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-cyan-500 font-medium tracking-widest text-xs uppercase">Initializing Engine...</span>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md z-10">
+          <div className="flex flex-col items-center gap-6">
+            <div className="relative">
+              <div className="w-16 h-16 border-2 border-cyan-500/20 rounded-full" />
+              <div className="absolute inset-0 w-16 h-16 border-t-2 border-cyan-500 rounded-full animate-spin" />
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-cyan-500 font-black tracking-[0.2em] text-sm uppercase">GeoFlux Engine</span>
+              <span className="text-white/20 text-[10px] font-medium uppercase tracking-widest">Initialising Spatial Core</span>
+            </div>
           </div>
         </div>
       )}
+      
+      {/* Map Overlay HUD */}
+      <div className="absolute bottom-8 left-8 z-10 pointer-events-none">
+        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">System Online</span>
+          </div>
+          <div className="text-[10px] font-mono text-white/20">
+            {mapState.lat.toFixed(4)}°N, {mapState.lng.toFixed(4)}°E
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
