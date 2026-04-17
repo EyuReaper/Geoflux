@@ -552,7 +552,25 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
-  toggleLive: () => set((state) => ({ isLive: !state.isLive })),
+  toggleLive: () => {
+    const { isLive } = get()
+    if (!isLive) {
+      if (!socket) {
+        socket = io(API_URL)
+        socket.on('live-data', (point: DataPoint) => {
+          set((state) => {
+            const newData = [...state.data, point].slice(-5000) // Keep last 5000 points
+            return { data: newData }
+          })
+          get().setFilters({})
+        })
+      }
+      socket.emit('start-live')
+    } else {
+      socket?.emit('stop-live')
+    }
+    set({ isLive: !isLive })
+  },
   
   updateDataPoints: () => {
     const state = get()

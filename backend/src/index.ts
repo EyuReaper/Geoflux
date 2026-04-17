@@ -271,6 +271,52 @@ app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) 
   }
 });
 
+httpServer.listen(port, () => {
+  console.log(`Backend running at http://localhost:${port}`);
+});
+uest, res) => {
+  try {
+    const { id } = req.params;
+    const dataset = await prisma.dataset.findUnique({ where: { id } });
+    
+    if (!dataset || dataset.userId !== req.user?.id) {
+      return res.status(404).json({ error: "Dataset not found" });
+    }
+
+    await prisma.dataset.delete({ where: { id } });
+    tileIndexCache.delete(id); // Clear cache on delete
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete dataset" });
+  }
+});
+
+// --- WORKSPACE ROUTES (Protected) ---
+
+app.get("/workspaces", authenticateToken as any, async (req: AuthRequest, res) => {
+  try {
+    const workspaces = await prisma.workspace.findMany({
+      where: { userId: req.user?.id },
+      orderBy: { updatedAt: "desc" },
+    });
+    res.json(workspaces);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch workspaces" });
+  }
+});
+
+app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) => {
+  try {
+    const { name, config } = req.body;
+    const workspace = await prisma.workspace.create({
+      data: { name, config, userId: req.user!.id },
+    });
+    res.status(201).json(workspace);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create workspace" });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Backend running at http://localhost:${port}`);
 });
