@@ -167,30 +167,73 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
 app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
   try {
     const { id, z, x, y } = req.params;
+    const isAreaMode = req.query.mode === 'area';
     const zInt = parseInt(z);
     const xInt = parseInt(x);
     const yInt = parseInt(y);
 
-    let tileIndex = tileIndexCache.get(id);
+    const cacheKey = `${id}-${isAreaMode ? 'grid' : 'points'}`;
+    let tileIndex = tileIndexCache.get(cacheKey);
 
     if (!tileIndex) {
       const dataset = await prisma.dataset.findUnique({ where: { id } });
       if (!dataset) return res.status(404).send("Dataset not found");
 
       const data = dataset.data as any[];
-      const geojson: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: data.map((d: any) => ({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [d.lng, d.lat] },
-          properties: { 
-            value: d.value, 
-            category: d.category,
-            timestamp: typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime(),
-            ...d.metadata 
-          }
-        }))
-      };
+      let geojson: GeoJSON.FeatureCollection;
+
+      if (isAreaMode) {
+        // Spatial Binning (Square Grid)
+        const resolution = 0.05; // ~5km at equator
+        const grid = new Map<string, { value: number; count: number; lat: number; lng: number }>();
+
+        data.forEach((d: any) => {
+          const latBin = Math.floor(d.lat / resolution) * resolution;
+          const lngBin = Math.floor(d.lng / resolution) * resolution;
+          const key = `${latBin},${lngBin}`;
+          
+          const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin };
+          existing.value += (d.value || 0);
+          existing.count += 1;
+          grid.set(key, existing);
+        });
+
+        geojson = {
+          type: "FeatureCollection",
+          features: Array.from(grid.values()).map(cell => ({
+            type: "Feature",
+            geometry: {
+              type: "Polygon",
+              coordinates: [[
+                [cell.lng, cell.lat],
+                [cell.lng + resolution, cell.lat],
+                [cell.lng + resolution, cell.lat + resolution],
+                [cell.lng, cell.lat + resolution],
+                [cell.lng, cell.lat]
+              ]]
+            },
+            properties: {
+              value: cell.value,
+              count: cell.count,
+              avg: cell.value / cell.count
+            }
+          }))
+        };
+      } else {
+        geojson = {
+          type: "FeatureCollection",
+          features: data.map((d: any) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [d.lng, d.lat] },
+            properties: { 
+              value: d.value, 
+              category: d.category,
+              timestamp: typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime(),
+              ...d.metadata 
+            }
+          }))
+        };
+      }
 
       tileIndex = geojsonvt(geojson, {
         maxZoom: 14,
@@ -201,7 +244,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
         indexMaxZoom: 4,
         indexMaxPoints: 100000
       });
-      tileIndexCache.set(id, tileIndex);
+      tileIndexCache.set(cacheKey, tileIndex);
     }
 
     const tile = tileIndex.getTile(zInt, xInt, yInt);

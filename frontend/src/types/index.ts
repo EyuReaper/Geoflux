@@ -112,6 +112,7 @@ export type MapStyle = {
   heatmapRadius: number;
   colorScale: string[];
   is3D: boolean;
+  extrusionScale: number;
   gridType: 'square' | 'hex';
   gridResolution: number;
 };

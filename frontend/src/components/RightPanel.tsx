@@ -281,6 +281,23 @@ const RightPanel = () => {
                     )} />
                   </button>
                 </div>
+                
+                {mapStyle.is3D && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex justify-between">
+                      <label className="text-[10px] font-bold uppercase text-white/40 tracking-wider">Extrusion Height</label>
+                      <span className="text-xs text-cyan-400 font-mono">{mapStyle.extrusionScale}x</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="1" max="200" step="5" 
+                      value={mapStyle.extrusionScale}
+                      onChange={(e) => updateMapStyle({ extrusionScale: parseInt(e.target.value) })}
+                      className="w-full accent-cyan-500"
+                    />
+                  </div>
+                )}
+                
                 <p className="text-[10px] text-white/30 leading-tight">
                   Extrude grid cells based on their aggregated values for 3D perspective.
                 </p>

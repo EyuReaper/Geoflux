@@ -129,6 +129,7 @@ const initialState = {
     heatmapRadius: 30,
     colorScale: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'],
     is3D: true,
+    extrusionScale: 50,
     gridType: 'hex' as const,
     gridResolution: 4,
   },
