@@ -66,6 +66,8 @@ export type TimelineState = {
   endTime: number;
   isPlaying: boolean;
   speed: number;
+  loopMode: 'loop' | 'once' | 'ping-pong';
+  direction: 1 | -1;
 };
 
 export type FieldMapping = {

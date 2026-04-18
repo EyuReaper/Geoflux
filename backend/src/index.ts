@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
+import { Server } from "socket.io";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
@@ -15,6 +17,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
 const port = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 
@@ -141,7 +151,6 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
         userId: true,
         createdAt: true,
         updatedAt: true,
-        // Explicitly exclude 'data' field here for general info requests
       }
     });
     
@@ -221,7 +230,6 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
         userId: req.user?.id,
       },
     });
-    // Invalidate cache if updating existing? (Prisma create doesn't need it, but update would)
     res.status(201).json(dataset);
   } catch (error) {
     res.status(500).json({ error: "Failed to create dataset" });
@@ -238,7 +246,7 @@ app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, r
     }
 
     await prisma.dataset.delete({ where: { id } });
-    tileIndexCache.delete(id); // Clear cache on delete
+    tileIndexCache.delete(id); 
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete dataset" });
@@ -269,54 +277,49 @@ app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) 
   } catch (error) {
     res.status(500).json({ error: "Failed to create workspace" });
   }
+});
+
+// --- REAL-TIME SIMULATION ---
+
+let simulationInterval: NodeJS.Timeout | null = null;
+
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+
+  socket.on("start-live", () => {
+    if (!simulationInterval) {
+      console.log("Starting live simulation");
+      simulationInterval = setInterval(() => {
+        const point = {
+          id: Math.random().toString(36).substr(2, 9),
+          lat: (Math.random() * 180) - 90,
+          lng: (Math.random() * 360) - 180,
+          value: Math.floor(Math.random() * 100),
+          category: ["Security", "Network", "Auth", "DB"][Math.floor(Math.random() * 4)],
+          timestamp: Date.now()
+        };
+        io.emit("live-data", point);
+      }, 1000);
+    }
+  });
+
+  socket.on("stop-live", () => {
+    console.log("Stopping live simulation");
+    if (simulationInterval) {
+      clearInterval(simulationInterval);
+      simulationInterval = null;
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+    if (io.engine.clientsCount === 0 && simulationInterval) {
+      clearInterval(simulationInterval);
+      simulationInterval = null;
+    }
+  });
 });
 
 httpServer.listen(port, () => {
-  console.log(`Backend running at http://localhost:${port}`);
-});
-uest, res) => {
-  try {
-    const { id } = req.params;
-    const dataset = await prisma.dataset.findUnique({ where: { id } });
-    
-    if (!dataset || dataset.userId !== req.user?.id) {
-      return res.status(404).json({ error: "Dataset not found" });
-    }
-
-    await prisma.dataset.delete({ where: { id } });
-    tileIndexCache.delete(id); // Clear cache on delete
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: "Failed to delete dataset" });
-  }
-});
-
-// --- WORKSPACE ROUTES (Protected) ---
-
-app.get("/workspaces", authenticateToken as any, async (req: AuthRequest, res) => {
-  try {
-    const workspaces = await prisma.workspace.findMany({
-      where: { userId: req.user?.id },
-      orderBy: { updatedAt: "desc" },
-    });
-    res.json(workspaces);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch workspaces" });
-  }
-});
-
-app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) => {
-  try {
-    const { name, config } = req.body;
-    const workspace = await prisma.workspace.create({
-      data: { name, config, userId: req.user!.id },
-    });
-    res.status(201).json(workspace);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to create workspace" });
-  }
-});
-
-app.listen(port, () => {
   console.log(`Backend running at http://localhost:${port}`);
 });

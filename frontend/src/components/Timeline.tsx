@@ -1,16 +1,16 @@
 import { useEffect } from 'react'
-import { Play, Pause, FastForward, Rewind, Clock } from 'lucide-react'
+import { Play, Pause, FastForward, Rewind, Clock, RotateCw, ArrowRight, ArrowLeftRight } from 'lucide-react'
 import { useStore } from '../store/useStore'
 
 const Timeline = () => {
-  const { data, timeline, setTimeline, togglePlayback, tickTimeline } = useStore()
+  const { data, timeline, setTimeline, togglePlayback, tickTimeline, stepTimeline } = useStore()
 
   useEffect(() => {
     let interval: number | undefined
     if (timeline.isPlaying) {
       interval = window.setInterval(() => {
         tickTimeline()
-      }, 100)
+      }, 50) // Faster tick for smoother animation
     }
     return () => clearInterval(interval)
   }, [timeline.isPlaying, tickTimeline])
@@ -27,6 +27,18 @@ const Timeline = () => {
   }
 
   const progress = ((timeline.currentTime - timeline.startTime) / (timeline.endTime - timeline.startTime)) * 100
+
+  const LoopIcon = {
+    'once': <ArrowRight size={16} />,
+    'loop': <RotateCw size={16} />,
+    'ping-pong': <ArrowLeftRight size={16} />
+  }[timeline.loopMode]
+
+  const nextLoopMode = () => {
+    const modes: ('once' | 'loop' | 'ping-pong')[] = ['once', 'loop', 'ping-pong']
+    const currentIndex = modes.indexOf(timeline.loopMode)
+    setTimeline({ loopMode: modes[(currentIndex + 1) % modes.length] })
+  }
 
   return (
     <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1500] w-full max-w-3xl px-6">
@@ -47,8 +59,9 @@ const Timeline = () => {
 
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => setTimeline({ speed: Math.max(0.5, timeline.speed - 0.5) })}
+                onClick={() => stepTimeline(-1)}
                 className="p-2 hover:bg-white/5 rounded-full text-white/40 hover:text-white transition-colors"
+                title="Step Backward"
               >
                 <Rewind size={16} />
               </button>
@@ -61,14 +74,33 @@ const Timeline = () => {
               </button>
 
               <button 
-                onClick={() => setTimeline({ speed: Math.min(5, timeline.speed + 0.5) })}
+                onClick={() => stepTimeline(1)}
                 className="p-2 hover:bg-white/5 rounded-full text-white/40 hover:text-white transition-colors"
+                title="Step Forward"
               >
                 <FastForward size={16} />
               </button>
               
               <div className="h-4 w-px bg-white/10 mx-2" />
-              <div className="text-[10px] font-bold text-cyan-400 w-8">{timeline.speed}x</div>
+              
+              <button 
+                onClick={nextLoopMode}
+                className={`p-2 rounded-lg border transition-all ${timeline.loopMode !== 'once' ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' : 'bg-white/5 border-transparent text-white/40'}`}
+                title={`Loop Mode: ${timeline.loopMode}`}
+              >
+                {LoopIcon}
+              </button>
+
+              <select 
+                value={timeline.speed}
+                onChange={(e) => setTimeline({ speed: parseFloat(e.target.value) })}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px] font-bold text-white focus:outline-none focus:border-cyan-500/50 cursor-pointer"
+              >
+                <option value="0.5">0.5x</option>
+                <option value="1">1x</option>
+                <option value="2">2x</option>
+                <option value="5">5x</option>
+              </select>
             </div>
           </div>
 

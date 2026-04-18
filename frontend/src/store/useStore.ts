@@ -72,6 +72,7 @@ interface GeoFluxState {
   loadDemoData: () => void
   updateDataPoints: () => void
   tickTimeline: () => void
+  stepTimeline: (steps: number) => void
   applyMapping: () => void
   updateGlobalData: () => void
   
@@ -144,6 +145,8 @@ const initialState = {
     endTime: 100,
     isPlaying: false,
     speed: 1,
+    loopMode: 'loop',
+    direction: 1,
   },
 }
 
@@ -544,8 +547,41 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     const { timeline, setTimeline } = get()
     if (!timeline.isPlaying) return
 
-    let nextTime = timeline.currentTime + (timeline.endTime - timeline.startTime) / 100 * timeline.speed
-    if (nextTime > timeline.endTime) nextTime = timeline.startTime
+    const delta = (timeline.endTime - timeline.startTime) / 200 * timeline.speed * (timeline.direction || 1)
+    let nextTime = timeline.currentTime + delta
+
+    if (timeline.loopMode === 'loop') {
+      if (nextTime > timeline.endTime) nextTime = timeline.startTime
+      if (nextTime < timeline.startTime) nextTime = timeline.endTime
+    } else if (timeline.loopMode === 'ping-pong') {
+      if (nextTime > timeline.endTime) {
+        nextTime = timeline.endTime
+        setTimeline({ direction: -1 })
+      } else if (nextTime < timeline.startTime) {
+        nextTime = timeline.startTime
+        setTimeline({ direction: 1 })
+      }
+    } else if (timeline.loopMode === 'once') {
+      if (nextTime > timeline.endTime) {
+        nextTime = timeline.endTime
+        setTimeline({ isPlaying: false })
+      }
+      if (nextTime < timeline.startTime) {
+        nextTime = timeline.startTime
+        setTimeline({ isPlaying: false })
+      }
+    }
+    
+    setTimeline({ currentTime: nextTime })
+  },
+
+  stepTimeline: (steps: number) => {
+    const { timeline, setTimeline } = get()
+    const delta = (timeline.endTime - timeline.startTime) / 100 * steps
+    let nextTime = timeline.currentTime + delta
+    
+    if (nextTime > timeline.endTime) nextTime = timeline.endTime
+    if (nextTime < timeline.startTime) nextTime = timeline.startTime
     
     setTimeline({ currentTime: nextTime })
   },
