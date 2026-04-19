@@ -10,11 +10,16 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from '
 import { cn } from './lib/utils'
 
 function App() {
-  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, loadDemoData, fetchDatasets } = useStore()
+  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, loadDemoData, fetchDatasets, loadWorkspace } = useStore()
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const workspaceId = params.get('workspace')
+    if (workspaceId) {
+      loadWorkspace(workspaceId)
+    }
     fetchDatasets()
-  }, [fetchDatasets])
+  }, [fetchDatasets, loadWorkspace])
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#0a0a0a] text-white font-sans selection:bg-cyan-500/30 flex flex-col">

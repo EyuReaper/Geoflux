@@ -41,7 +41,9 @@ interface GeoFluxState {
   // Actions
   fetchDatasets: () => Promise<void>
   fetchWorkspaces: () => Promise<void>
+  loadWorkspace: (id: string) => Promise<void>
   saveWorkspace: (name: string) => Promise<void>
+  toggleWorkspaceSharing: (id: string, isPublic: boolean) => Promise<void>
   addDataset: (name: string, rawData: Record<string, unknown>[]) => void
   removeDataset: (id: string) => void
   toggleDatasetVisibility: (id: string) => void
@@ -269,6 +271,28 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     } catch (err) {}
   },
 
+  loadWorkspace: async (id) => {
+    const { token } = get().auth
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/workspaces/${id}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      if (!response.ok) throw new Error('Workspace not found or access denied')
+      const workspace = await response.json()
+      
+      const config = workspace.config
+      if (config.mapState) set({ mapState: { ...get().mapState, ...config.mapState } })
+      if (config.mapStyle) set({ mapStyle: { ...get().mapStyle, ...config.mapStyle } })
+      if (config.activeModes) set({ activeModes: config.activeModes })
+      if (config.activeDatasetId) get().setActiveDataset(config.activeDatasetId)
+      
+      set({ isLoading: false })
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
+
   saveWorkspace: async (name) => {
     const { token } = get().auth
     if (!token) return
@@ -288,6 +312,25 @@ export const useStore = create<GeoFluxState>((set, get) => ({
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ name, config })
+      })
+      if (response.ok) {
+        get().fetchWorkspaces()
+      }
+    } catch (err) {}
+  },
+
+  toggleWorkspaceSharing: async (id, isPublic) => {
+    const { token } = get().auth
+    if (!token) return
+
+    try {
+      const response = await fetch(`${API_URL}/workspaces/${id}/share`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ isPublic })
       })
       if (response.ok) {
         get().fetchWorkspaces()

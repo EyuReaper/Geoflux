@@ -322,6 +322,59 @@ app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) 
   }
 });
 
+app.get("/workspaces/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const workspace = await prisma.workspace.findUnique({
+      where: { id },
+    });
+
+    if (!workspace) return res.status(404).json({ error: "Workspace not found" });
+
+    // If it's not public, check if the requester is the owner
+    if (!workspace.isPublic) {
+      // Simple check for owner if token provided, otherwise deny
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(403).json({ error: "Access denied" });
+      
+      const token = authHeader.split(" ")[1];
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        if (workspace.userId !== decoded.id) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } catch (err) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    res.json(workspace);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch workspace" });
+  }
+});
+
+app.patch("/workspaces/:id/share", authenticateToken as any, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { isPublic } = req.body;
+    
+    const workspace = await prisma.workspace.findUnique({ where: { id } });
+    if (!workspace || workspace.userId !== req.user?.id) {
+      return res.status(404).json({ error: "Workspace not found" });
+    }
+
+    const updated = await prisma.workspace.update({
+      where: { id },
+      data: { isPublic: !!isPublic }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update sharing" });
+  }
+});
+
 // --- REAL-TIME SIMULATION ---
 
 let simulationInterval: NodeJS.Timeout | null = null;

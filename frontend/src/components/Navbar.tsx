@@ -4,12 +4,40 @@ import { useStore } from '../store/useStore'
 import { AuthModal } from './AuthModal'
 
 const Navbar = () => {
-  const { loadDemoData, isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace } = useStore()
+  const { loadDemoData, isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace, workspaces, toggleWorkspaceSharing } = useStore()
   const [showAuth, setShowAuth] = useState(false)
 
   const handleSave = () => {
     const name = prompt('Enter workspace name:', `Workspace ${new Date().toLocaleDateString()}`)
     if (name) saveWorkspace(name)
+  }
+
+  const handleShare = async () => {
+    if (!auth.isAuthenticated) {
+      alert('Please login to share workspaces')
+      setShowAuth(true)
+      return
+    }
+
+    if (workspaces.length === 0) {
+      alert('Please save your workspace first')
+      handleSave()
+      return
+    }
+
+    // Share the most recently updated workspace for simplicity
+    const latest = workspaces[0]
+    if (!latest.isPublic) {
+      if (confirm(`Make "${latest.name}" public to share?`)) {
+        await toggleWorkspaceSharing(latest.id, true)
+      } else {
+        return
+      }
+    }
+
+    const shareUrl = `${window.location.origin}${window.location.pathname}?workspace=${latest.id}`
+    await navigator.clipboard.writeText(shareUrl)
+    alert('Shareable link copied to clipboard!')
   }
 
   return (
@@ -61,7 +89,10 @@ const Navbar = () => {
             <Play size={16} />
             Demo Data
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-sm font-medium transition-all text-white/80">
+          <button 
+            onClick={handleShare}
+            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-sm font-medium transition-all text-white/80"
+          >
             <Share2 size={16} />
             Share Map
           </button>
