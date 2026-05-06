@@ -77,7 +77,48 @@ const Map = () => {
       }
 
       // 1. Heatmap Layer
-      // ... (existing heatmap logic)
+      if (activeModes.includes('heatmap')) {
+        const layerId = `geoflux-heatmap-${ds.id}`
+        newLayerIds.add(layerId)
+        if (!mapInstance.getLayer(layerId)) {
+          mapInstance.addLayer({
+            id: layerId,
+            type: 'heatmap',
+            source: sourceId,
+            'source-layer': 'geoflux-layer',
+            maxzoom: 14,
+            paint: {
+              'heatmap-weight': [
+                'interpolate', ['linear'], ['get', 'value'],
+                0, 0,
+                100, 1
+              ],
+              'heatmap-intensity': [
+                'interpolate', ['linear'], ['zoom'],
+                0, 1,
+                14, 3 * mapStyle.heatmapIntensity
+              ],
+              'heatmap-color': [
+                'interpolate', ['linear'], ['heatmap-density'],
+                0, 'rgba(0,0,0,0)',
+                0.2, mapStyle.colorScale[0],
+                0.4, mapStyle.colorScale[1],
+                0.6, mapStyle.colorScale[2],
+                1.0, mapStyle.colorScale[3]
+              ],
+              'heatmap-radius': [
+                'interpolate', ['linear'], ['zoom'],
+                0, 2,
+                14, mapStyle.heatmapRadius
+              ],
+              'heatmap-opacity': mapStyle.opacity
+            }
+          })
+        }
+        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setPaintProperty(layerId, 'heatmap-intensity', mapStyle.heatmapIntensity)
+        mapInstance.setPaintProperty(layerId, 'heatmap-radius', mapStyle.heatmapRadius)
+      }
 
       // 2. 3D Extrusion / Area Layer
       if (activeModes.includes('area') || activeModes.includes('choropleth')) {
