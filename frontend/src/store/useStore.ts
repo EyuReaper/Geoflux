@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { io, type Socket } from 'socket.io-client'
 import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace } from '../types/index'
 
 interface GeoFluxState {
@@ -148,12 +149,32 @@ const initialState = {
     endTime: 100,
     isPlaying: false,
     speed: 1,
-    loopMode: 'loop',
-    direction: 1,
+    loopMode: 'loop' as const,
+    direction: 1 as const,
   },
 }
 
 export const API_URL = 'http://localhost:4000'
+
+let socket: Socket | null = null
+
+type DatasetSummary = Pick<Dataset, 'id' | 'name' | 'color'>;
+
+const toTimestampValue = (value: unknown) => value as DataPoint['timestamp']
+
+const runValueTransformation = (
+  value: number,
+  row: Record<string, unknown>,
+  expression: string
+) => {
+  try {
+    const fn = new Function('value', 'row', `return ${expression}`)
+    const result = fn(value, row) as unknown
+    return typeof result === 'number' && !Number.isNaN(result) ? result : value
+  } catch {
+    return value
+  }
+}
 
 export const useStore = create<GeoFluxState>((set, get) => ({
   ...initialState,
@@ -222,9 +243,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         if (response.status === 403) get().logout()
         throw new Error('Failed to fetch datasets')
       }
-      const data = await response.json()
+      const data = await response.json() as DatasetSummary[]
       
-      const datasets = await Promise.all(data.map(async (d: any) => {
+      const datasets = await Promise.all(data.map(async (d) => {
         // Fetch stats for each dataset
         try {
           const statsRes = await fetch(`${API_URL}/datasets/${d.id}/stats`, {
@@ -239,7 +260,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             data: [],
             stats
           }
-        } catch (e) {
+        } catch {
           return {
             id: d.id,
             name: d.name,
@@ -268,7 +289,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         const workspaces = await response.json()
         set({ workspaces })
       }
-    } catch (err) {}
+    } catch {
+      set({ error: 'Failed to fetch workspaces' })
+    }
   },
 
   loadWorkspace: async (id) => {
@@ -316,7 +339,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       if (response.ok) {
         get().fetchWorkspaces()
       }
-    } catch (err) {}
+    } catch {
+      set({ error: 'Failed to save workspace' })
+    }
   },
 
   toggleWorkspaceSharing: async (id, isPublic) => {
@@ -335,7 +360,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       if (response.ok) {
         get().fetchWorkspaces()
       }
-    } catch (err) {}
+    } catch {
+      set({ error: 'Failed to update workspace sharing' })
+    }
   },
 
   addDataset: async (name, rawData) => {
@@ -348,11 +375,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     const mappedData: DataPoint[] = rawData.map((d, i) => {
       let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
       transformations.filter(t => t.active).forEach(t => {
-        try {
-          const fn = new Function('value', 'row', `return ${t.expression}`)
-          const result = fn(value, d)
-          if (typeof result === 'number' && !isNaN(result)) value = result
-        } catch (e) {}
+        value = runValueTransformation(value, d, t.expression)
       })
       return {
         id: `temp-${i}`,
@@ -361,7 +384,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         lng: Number(d[fieldMapping.lng] || 0),
         value,
         category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as any) : undefined,
+        timestamp: fieldMapping.timestamp ? toTimestampValue(d[fieldMapping.timestamp]) : undefined,
         metadata: d
       }
     })
@@ -389,7 +412,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
           headers: { 'Authorization': `Bearer ${token}` }
         })
         if (statsRes.ok) stats = await statsRes.json()
-      } catch (e) {}
+      } catch {
+        stats = undefined
+      }
 
       const newDataset: Dataset = {
         id: savedDataset.id,
@@ -723,11 +748,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     const mappedData: DataPoint[] = rawData.map((d, i) => {
       let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
       transformations.filter(t => t.active).forEach(t => {
-        try {
-          const fn = new Function('value', 'row', `return ${t.expression}`)
-          const result = fn(value, d)
-          if (typeof result === 'number' && !isNaN(result)) value = result
-        } catch (e) {}
+        value = runValueTransformation(value, d, t.expression)
       })
       return {
         id: `temp-${i}`,
@@ -736,7 +757,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         lng: Number(d[fieldMapping.lng] || 0),
         value,
         category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-        timestamp: fieldMapping.timestamp ? (d[fieldMapping.timestamp] as any) : undefined,
+        timestamp: fieldMapping.timestamp ? toTimestampValue(d[fieldMapping.timestamp]) : undefined,
         metadata: d
       }
     })

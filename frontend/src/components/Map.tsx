@@ -2,11 +2,26 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useStore, API_URL } from '../store/useStore'
+import type { DataPoint } from '../types'
 
 const STYLES = {
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   light: 'https://demotiles.maplibre.org/style.json'
 }
+
+type PointGeometry = {
+  type: 'Point'
+  coordinates: [number, number]
+}
+
+type MapFilter = Parameters<maplibregl.Map['setFilter']>[1]
+
+const isPointGeometry = (geometry: GeoJSON.Geometry): geometry is PointGeometry => (
+  geometry.type === 'Point' &&
+  Array.isArray(geometry.coordinates) &&
+  typeof geometry.coordinates[0] === 'number' &&
+  typeof geometry.coordinates[1] === 'number'
+)
 
 const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -37,7 +52,7 @@ const Map = () => {
     const newLayerIds = new Set<string>()
 
     // Build MapLibre filter
-    const mapLibreFilter: any[] = ['all']
+    const mapLibreFilter: MapFilter = ['all']
     mapLibreFilter.push(['>=', ['get', 'value'], filters.minValue])
     mapLibreFilter.push(['<=', ['get', 'value'], filters.maxValue])
     
@@ -65,7 +80,7 @@ const Map = () => {
         })
       } else {
         // Update tiles if mode changed
-        const source = mapInstance.getSource(sourceId) as maplibregl.VectorTileSource
+        const source = mapInstance.getSource(sourceId) as maplibregl.VectorSource
         if (source.tiles && source.tiles[0] !== tileUrl) {
           mapInstance.removeSource(sourceId)
           mapInstance.addSource(sourceId, {
@@ -115,7 +130,7 @@ const Map = () => {
             }
           })
         }
-        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setFilter(layerId, mapLibreFilter)
         mapInstance.setPaintProperty(layerId, 'heatmap-intensity', mapStyle.heatmapIntensity)
         mapInstance.setPaintProperty(layerId, 'heatmap-radius', mapStyle.heatmapRadius)
       }
@@ -141,7 +156,7 @@ const Map = () => {
             })
           }
           
-          mapInstance.setFilter(extrusionLayerId, mapLibreFilter as any)
+          mapInstance.setFilter(extrusionLayerId, mapLibreFilter)
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-height', [
             'interpolate', ['linear'], ['get', 'value'],
             0, 0,
@@ -175,7 +190,7 @@ const Map = () => {
           }
           
           const baseRadius = 10 * Math.pow(2, mapStyle.gridResolution - 4)
-          mapInstance.setFilter(layerId, mapLibreFilter as any)
+          mapInstance.setFilter(layerId, mapLibreFilter)
           mapInstance.setPaintProperty(layerId, 'circle-radius', [
             'interpolate', ['exponential', 2], ['zoom'],
             0, baseRadius / 10,
@@ -210,7 +225,7 @@ const Map = () => {
             }
           })
         }
-        mapInstance.setFilter(layerId, mapLibreFilter as any)
+        mapInstance.setFilter(layerId, mapLibreFilter)
         mapInstance.setPaintProperty(layerId, 'circle-radius', [
           'interpolate', ['linear'], ['zoom'],
           5, mapStyle.pointSize,
@@ -277,7 +292,7 @@ const Map = () => {
 
       if (features.length > 0) {
         const feature = features[0]
-        const props = feature.properties
+        const props = feature.properties ?? {}
         
         setSelectedEntity({
           type: feature.layer.id.includes('area') ? 'cell' : 'point',
@@ -305,7 +320,8 @@ const Map = () => {
 
       if (features.length > 0) {
         mapInstance.getCanvas().style.cursor = 'pointer'
-        const props = features[0].properties
+        const props = features[0].properties ?? {}
+        const value = Number(props.value || 0)
         
         popup.current
           ?.setLngLat(e.lngLat)
@@ -313,7 +329,7 @@ const Map = () => {
             <div style="padding: 12px; background: rgba(10,10,10,0.9); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; color: white; font-family: 'Inter', sans-serif; min-width: 140px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
               <div style="font-size: 9px; opacity: 0.5; text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em; margin-bottom: 6px;">Data Insights</div>
               <div style="display: flex; align-items: baseline; gap: 4px;">
-                <div style="font-size: 18px; font-weight: 900; color: #06b6d4;">${(props.value || 0).toFixed(2)}</div>
+                <div style="font-size: 18px; font-weight: 900; color: #06b6d4;">${value.toFixed(2)}</div>
                 <div style="font-size: 10px; opacity: 0.4;">units</div>
               </div>
               ${props.category ? `
@@ -346,18 +362,22 @@ const Map = () => {
         return
       }
 
-      const features = mapInstance.queryRenderedFeatures({ layers })
+      const features = mapInstance.queryRenderedFeatures(undefined, { layers })
       
-      const dataPoints = features.map(f => ({
+      const dataPoints: DataPoint[] = features.map(f => {
+        const geometry = f.geometry
+        const point = isPointGeometry(geometry) ? geometry : null
+        return {
         id: f.properties?.id || Math.random(),
         datasetId: f.layer.id.split('-').pop() || '',
-        lat: (f.geometry as any).type === 'Point' ? (f.geometry as any).coordinates[1] : 0,
-        lng: (f.geometry as any).type === 'Point' ? (f.geometry as any).coordinates[0] : 0,
-        value: f.properties?.value,
-        category: f.properties?.category,
+        lat: point ? point.coordinates[1] : 0,
+        lng: point ? point.coordinates[0] : 0,
+        value: typeof f.properties?.value === 'number' ? f.properties.value : undefined,
+        category: typeof f.properties?.category === 'string' ? f.properties.category : undefined,
         timestamp: f.properties?.timestamp,
-        metadata: f.properties || {}
-      }))
+        metadata: (f.properties || {}) as Record<string, unknown>
+        }
+      })
 
       setViewportFilteredData(dataPoints)
     }

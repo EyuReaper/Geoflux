@@ -98,6 +98,7 @@ export const WorkspaceScalarFieldEnum = {
   id: 'id',
   name: 'name',
   config: 'config',
+  isPublic: 'isPublic',
   userId: 'userId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'

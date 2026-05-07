@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { Layers, MousePointer2, Flame, Map as MapIcon, Sliders, Palette, Radio, Sun, Moon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store/useStore'

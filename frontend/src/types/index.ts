@@ -13,7 +13,8 @@ export type AuthState = {
 export type Workspace = {
   id: string;
   name: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
+  isPublic: boolean;
   updatedAt: string;
 };
 

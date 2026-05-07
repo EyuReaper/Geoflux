@@ -1,15 +1,9 @@
 import { useMemo } from 'react'
-import { BarChart3, TrendingUp, Activity, PieChart, Download, FileJson, FileSpreadsheet, Camera } from 'lucide-react'
+import { BarChart3, TrendingUp, Activity, PieChart, FileJson, FileSpreadsheet, Camera } from 'lucide-react'
 import { useStore } from '../store/useStore'
-import { cn } from '../lib/utils'
 
 const AnalyticsPanel = () => {
-  const { viewportFilteredData, activeDatasetId, datasets, isRightPanelOpen } = useStore()
-
-  const activeDataset = useMemo(() => 
-    datasets.find(d => d.id === activeDatasetId), 
-    [datasets, activeDatasetId]
-  )
+  const { viewportFilteredData, isRightPanelOpen } = useStore()
 
   const stats = useMemo(() => {
     const points = viewportFilteredData

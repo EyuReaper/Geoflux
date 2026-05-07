@@ -8,8 +8,9 @@ import { Server } from "socket.io";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../prisma/generated/prisma/client";
-import { authenticateToken, AuthRequest } from "./middleware/auth.js";
+import { PrismaClient } from "../prisma/generated/prisma/client.js";
+import { authenticateToken } from "./middleware/auth.js";
+import type { AuthRequest } from "./middleware/auth.js";
 import geojsonvt from "geojson-vt";
 import vtpbf from "vt-pbf";
 
@@ -36,6 +37,8 @@ const prisma = new PrismaClient({ adapter });
 
 // Tile Cache
 const tileIndexCache = new Map<string, any>();
+
+const firstParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
@@ -103,7 +106,7 @@ app.get("/datasets", authenticateToken as any, async (req: AuthRequest, res) => 
 
 app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     const dataset = await prisma.dataset.findUnique({
       where: { id },
     });
@@ -141,7 +144,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest
 
 app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     const dataset = await prisma.dataset.findUnique({
       where: { id },
       select: {
@@ -166,7 +169,10 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
 // MVT Tile Route
 app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
   try {
-    const { id, z, x, y } = req.params;
+    const id = firstParam(req.params.id);
+    const z = firstParam(req.params.z);
+    const x = firstParam(req.params.x);
+    const y = firstParam(req.params.y);
     const isAreaMode = req.query.mode === 'area';
     const zInt = parseInt(z);
     const xInt = parseInt(x);
@@ -281,7 +287,7 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
 
 app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     const dataset = await prisma.dataset.findUnique({ where: { id } });
     
     if (!dataset || dataset.userId !== req.user?.id) {
@@ -289,7 +295,7 @@ app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, r
     }
 
     await prisma.dataset.delete({ where: { id } });
-    tileIndexCache.delete(id); 
+    tileIndexCache.delete(id);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete dataset" });
@@ -324,7 +330,7 @@ app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) 
 
 app.get("/workspaces/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     const workspace = await prisma.workspace.findUnique({
       where: { id },
     });
@@ -356,7 +362,7 @@ app.get("/workspaces/:id", async (req, res) => {
 
 app.patch("/workspaces/:id/share", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params;
+    const id = firstParam(req.params.id);
     const { isPublic } = req.body;
     
     const workspace = await prisma.workspace.findUnique({ where: { id } });

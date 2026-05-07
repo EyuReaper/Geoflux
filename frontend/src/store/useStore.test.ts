@@ -33,6 +33,14 @@ describe('GeoFlux Store', () => {
   })
 
   it('should add a dataset correctly via API', async () => {
+    useStore.setState({
+      auth: {
+        token: 'test-token',
+        user: { id: 'user-1', email: 'test@example.com' },
+        isAuthenticated: true
+      }
+    })
+
     const rawData = [
       { lat: 10, lng: 20, val: 50, cat: 'A' },
       { lat: 15, lng: 25, val: 75, cat: 'B' }
@@ -45,10 +53,10 @@ describe('GeoFlux Store', () => {
       data: []
     };
 
-    (fetch as any).mockResolvedValueOnce({
+    vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => mockSavedDataset
-    })
+    } as Response)
     
     await useStore.getState().addDataset('Test Dataset', rawData)
     
