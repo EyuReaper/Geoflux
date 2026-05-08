@@ -70,6 +70,59 @@ describe('GeoFlux Store', () => {
     expect(state.activeDatasetId).toBe('backend-id')
   })
 
+  it('should add a local dataset without authentication', async () => {
+    const rawData = [
+      { lat: 10, lng: 20, val: 50, cat: 'A' },
+      { lat: 15, lng: 25, val: 75, cat: 'B' }
+    ]
+
+    useStore.setState({
+      fieldMapping: {
+        lat: 'lat',
+        lng: 'lng',
+        value: 'val',
+        category: 'cat',
+        timestamp: ''
+      }
+    })
+
+    await useStore.getState().addDataset('Local Dataset', rawData)
+
+    expect(fetch).not.toHaveBeenCalled()
+
+    const state = useStore.getState()
+    expect(state.datasets).toHaveLength(1)
+    expect(state.datasets[0].id.startsWith('local-')).toBe(true)
+    expect(state.datasets[0].data).toHaveLength(2)
+    expect(state.data).toHaveLength(2)
+    expect(state.activeDatasetId).toBe(state.datasets[0].id)
+  })
+
+  it('should remove a local dataset without calling the API', async () => {
+    const rawData = [
+      { lat: 10, lng: 20, val: 50, cat: 'A' }
+    ]
+
+    useStore.setState({
+      fieldMapping: {
+        lat: 'lat',
+        lng: 'lng',
+        value: 'val',
+        category: 'cat',
+        timestamp: ''
+      }
+    })
+
+    await useStore.getState().addDataset('Local Dataset', rawData)
+    const localId = useStore.getState().datasets[0].id
+
+    await useStore.getState().removeDataset(localId)
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(useStore.getState().datasets).toHaveLength(0)
+    expect(useStore.getState().data).toHaveLength(0)
+  })
+
   it('should toggle visualization modes', () => {
     const { toggleMode } = useStore.getState()
     

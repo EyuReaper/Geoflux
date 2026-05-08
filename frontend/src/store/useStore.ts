@@ -159,8 +159,52 @@ export const API_URL = 'http://localhost:4000'
 let socket: Socket | null = null
 
 type DatasetSummary = Pick<Dataset, 'id' | 'name' | 'color'>;
+const LOCAL_DATASET_PREFIX = 'local-'
 
 const toTimestampValue = (value: unknown) => value as DataPoint['timestamp']
+const isLocalDatasetId = (id: string) => id.startsWith(LOCAL_DATASET_PREFIX)
+
+const buildMappedData = (
+  rawData: Record<string, unknown>[],
+  fieldMapping: FieldMapping,
+  transformations: Transformation[],
+  datasetId: string
+) => rawData.map((d, i) => {
+  let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
+  transformations.filter(t => t.active).forEach(t => {
+    value = runValueTransformation(value, d, t.expression)
+  })
+  return {
+    id: `${datasetId}-${i}`,
+    datasetId,
+    lat: Number(d[fieldMapping.lat] || 0),
+    lng: Number(d[fieldMapping.lng] || 0),
+    value,
+    category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
+    timestamp: fieldMapping.timestamp ? toTimestampValue(d[fieldMapping.timestamp]) : undefined,
+    metadata: d
+  }
+})
+
+const buildDatasetStats = (data: DataPoint[]) => {
+  const categories = new Set<string>()
+  let min = Infinity
+  let max = -Infinity
+
+  data.forEach((point) => {
+    const value = point.value || 0
+    min = Math.min(min, value)
+    max = Math.max(max, value)
+    if (point.category) categories.add(point.category)
+  })
+
+  return {
+    count: data.length,
+    categories: Array.from(categories),
+    min: min === Infinity ? 0 : min,
+    max: max === -Infinity ? 0 : max
+  }
+}
 
 const runValueTransformation = (
   value: number,
@@ -223,7 +267,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('geoflux_token')
-    set({ auth: { token: null, user: null, isAuthenticated: false }, datasets: [], workspaces: [] })
+    const localDatasets = get().datasets.filter((dataset) => isLocalDatasetId(dataset.id))
+    set({
+      auth: { token: null, user: null, isAuthenticated: false },
+      datasets: localDatasets,
+      workspaces: [],
+      activeDatasetId: localDatasets.some((dataset) => dataset.id === get().activeDatasetId)
+        ? get().activeDatasetId
+        : (localDatasets[0]?.id ?? null)
+    })
+    get().updateGlobalData()
   },
 
   setViewportFilteredData: (viewportFilteredData) => {
@@ -271,7 +324,8 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         }
       }))
       
-      set({ datasets, isLoading: false })
+      const localDatasets = get().datasets.filter((dataset) => isLocalDatasetId(dataset.id))
+      set({ datasets: [...localDatasets, ...datasets], isLoading: false })
       get().updateGlobalData()
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false })
@@ -367,29 +421,34 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
   addDataset: async (name, rawData) => {
     const { token } = get().auth
-    if (!token) return
 
     get().setRawData(rawData)
     const { fieldMapping, transformations } = get()
-    
-    const mappedData: DataPoint[] = rawData.map((d, i) => {
-      let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
-      transformations.filter(t => t.active).forEach(t => {
-        value = runValueTransformation(value, d, t.expression)
-      })
-      return {
-        id: `temp-${i}`,
-        datasetId: 'temp',
-        lat: Number(d[fieldMapping.lat] || 0),
-        lng: Number(d[fieldMapping.lng] || 0),
-        value,
-        category: fieldMapping.category ? String(d[fieldMapping.category]) : 'default',
-        timestamp: fieldMapping.timestamp ? toTimestampValue(d[fieldMapping.timestamp]) : undefined,
-        metadata: d
-      }
-    })
-
     const color = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'][get().datasets.length % 5]
+    const datasetId = token
+      ? `remote-${Date.now()}`
+      : `${LOCAL_DATASET_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const mappedData = buildMappedData(rawData, fieldMapping, transformations, datasetId)
+
+    if (!token) {
+      const localDataset: Dataset = {
+        id: datasetId,
+        name,
+        color,
+        isVisible: true,
+        data: mappedData,
+        stats: buildDatasetStats(mappedData)
+      }
+
+      set((state) => ({
+        datasets: [...state.datasets, localDataset],
+        activeDatasetId: localDataset.id,
+        isLoading: false,
+        error: null
+      }))
+      get().updateGlobalData()
+      return
+    }
 
     try {
       set({ isLoading: true })
@@ -438,8 +497,20 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   },
 
   removeDataset: async (id) => {
+    const dataset = get().datasets.find((entry) => entry.id === id)
     const { token } = get().auth
-    if (!token) return
+    if (!token || (dataset && isLocalDatasetId(dataset.id))) {
+      set((state) => {
+        const datasets = state.datasets.filter((entry) => entry.id !== id)
+        const activeDatasetId = state.activeDatasetId === id
+          ? (datasets[0]?.id ?? null)
+          : state.activeDatasetId
+
+        return { datasets, activeDatasetId }
+      })
+      get().updateGlobalData()
+      return
+    }
 
     try {
       set({ isLoading: true })

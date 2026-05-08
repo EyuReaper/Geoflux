@@ -9,4 +9,14 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          maplibre: ['maplibre-gl'],
+          leaflet: ['leaflet', 'react-leaflet'],
+        },
+      },
+    },
+  },
 })

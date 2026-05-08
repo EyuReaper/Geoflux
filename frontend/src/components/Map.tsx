@@ -23,6 +23,27 @@ const isPointGeometry = (geometry: GeoJSON.Geometry): geometry is PointGeometry 
   typeof geometry.coordinates[1] === 'number'
 )
 
+const buildGeoJson = (data: DataPoint[]): GeoJSON.FeatureCollection => ({
+  type: 'FeatureCollection',
+  features: data.map((point) => ({
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [point.lng, point.lat]
+    },
+    properties: {
+      id: point.id,
+      datasetId: point.datasetId,
+      value: point.value ?? 0,
+      category: point.category,
+      timestamp: typeof point.timestamp === 'number'
+        ? point.timestamp
+        : new Date(point.timestamp || 0).getTime(),
+      ...(point.metadata || {})
+    }
+  }))
+})
+
 const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -67,27 +88,49 @@ const Map = () => {
     visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
       newSourceIds.add(sourceId)
-      
-      const tileUrl = activeModes.includes('area') || activeModes.includes('choropleth')
-        ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area`
-        : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
+      const isLocalDataset = ds.data.length > 0
+      const sourceLayer = isLocalDataset ? undefined : 'geoflux-layer'
 
-      if (!mapInstance.getSource(sourceId)) {
-        mapInstance.addSource(sourceId, {
-          type: 'vector',
-          tiles: [tileUrl],
-          maxzoom: 14
-        })
-      } else {
-        // Update tiles if mode changed
-        const source = mapInstance.getSource(sourceId) as maplibregl.VectorSource
-        if (source.tiles && source.tiles[0] !== tileUrl) {
+      if (isLocalDataset) {
+        const geoJson = buildGeoJson(ds.data)
+        const existingSource = mapInstance.getSource(sourceId)
+
+        if (!existingSource) {
+          mapInstance.addSource(sourceId, {
+            type: 'geojson',
+            data: geoJson
+          })
+        } else if ('setData' in existingSource) {
+          ;(existingSource as maplibregl.GeoJSONSource).setData(geoJson)
+        } else {
           mapInstance.removeSource(sourceId)
+          mapInstance.addSource(sourceId, {
+            type: 'geojson',
+            data: geoJson
+          })
+        }
+      } else {
+        const tileUrl = activeModes.includes('area') || activeModes.includes('choropleth')
+          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area`
+          : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
+        const existingSource = mapInstance.getSource(sourceId)
+
+        if (!existingSource) {
           mapInstance.addSource(sourceId, {
             type: 'vector',
             tiles: [tileUrl],
             maxzoom: 14
           })
+        } else {
+          const source = existingSource as maplibregl.VectorSource
+          if (!('tiles' in source) || (source.tiles && source.tiles[0] !== tileUrl)) {
+            mapInstance.removeSource(sourceId)
+            mapInstance.addSource(sourceId, {
+              type: 'vector',
+              tiles: [tileUrl],
+              maxzoom: 14
+            })
+          }
         }
       }
 
@@ -100,7 +143,7 @@ const Map = () => {
             id: layerId,
             type: 'heatmap',
             source: sourceId,
-            'source-layer': 'geoflux-layer',
+            ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
             maxzoom: 14,
             paint: {
               'heatmap-weight': [
@@ -151,7 +194,7 @@ const Map = () => {
               id: extrusionLayerId,
               type: 'fill-extrusion',
               source: sourceId,
-              'source-layer': 'geoflux-layer',
+              ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
               paint: {}
             })
           }
@@ -179,7 +222,7 @@ const Map = () => {
               id: layerId,
               type: 'circle',
               source: sourceId,
-              'source-layer': 'geoflux-layer',
+              ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
               paint: {
                 'circle-pitch-alignment': 'map',
                 'circle-pitch-scale': 'viewport',
@@ -213,12 +256,12 @@ const Map = () => {
         const layerId = `geoflux-markers-${ds.id}`
         newLayerIds.add(layerId)
         if (!mapInstance.getLayer(layerId)) {
-          mapInstance.addLayer({
-            id: layerId,
-            type: 'circle',
-            source: sourceId,
-            'source-layer': 'geoflux-layer',
-            paint: {
+            mapInstance.addLayer({
+              id: layerId,
+              type: 'circle',
+              source: sourceId,
+              ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+              paint: {
               'circle-stroke-width': 1,
               'circle-stroke-color': '#fff',
               'circle-stroke-opacity': 0.5
