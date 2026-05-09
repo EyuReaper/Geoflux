@@ -194,50 +194,26 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
         const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords?: [number, number][] }>();
 
         if (gridType === 'hex') {
-          // Hexagonal Binning (Pointy Topped)
-          // Simplified axial mapping: https://www.redblobgames.com/grids/hexagons/
-          const size = gridRes;
+          // H3 Hexagonal Binning
+          // gridRes (frontend) is a value from 1 to 8. H3 resolution is from 0-15.
+          // We can map gridRes to a reasonable H3 resolution.
+          // For example, gridRes 1-8 can map to H3 res 3-10.
+          const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2)); 
+
           data.forEach((d: any) => {
-            // Convert lat/lng to axial hex coordinates
-            const q = (Math.sqrt(3)/3 * d.lng - 1/3 * d.lat) / size;
-            const r = (2/3 * d.lat) / size;
-            
-            // Round to nearest hex
-            let rq = Math.round(q);
-            let rr = Math.round(r);
-            let rs = Math.round(-q-r);
-            
-            const dq = Math.abs(rq - q);
-            const dr = Math.abs(rr - r);
-            const ds = Math.abs(rs - (-q-r));
-            
-            if (dq > dr && dq > ds) rq = -rr-rs;
-            else if (dr > ds) rr = -rq-rs;
-            
-            const key = `${rq},${rr}`;
-            const existing = grid.get(key) || { value: 0, count: 0, lat: 0, lng: 0 };
+            const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
+            const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0 };
             
             if (existing.count === 0) {
-              // Calculate center from hex coords
-              existing.lng = size * (Math.sqrt(3) * rq + Math.sqrt(3)/2 * rr);
-              existing.lat = size * (3/2 * rr);
-              
-              // Generate hexagon polygon
-              const corners: [number, number][] = [];
-              for (let i = 0; i < 6; i++) {
-                const angle = (Math.PI / 180) * (60 * i - 30);
-                corners.push([
-                  existing.lng + size * Math.cos(angle) * Math.sqrt(3)/1.5, // Squish factor to roughly match Mercator lat
-                  existing.lat + size * Math.sin(angle)
-                ]);
-              }
-              corners.push(corners[0]); // Close polygon
-              existing.coords = corners;
+              const [lat, lng] = h3.cellToLatLng(h3Index);
+              existing.lat = lat;
+              existing.lng = lng;
+              existing.coords = h3.cellToBoundary(h3Index, true); // GeoJson-like polygon
             }
             
             existing.value += (d.value || 0);
             existing.count += 1;
-            grid.set(key, existing);
+            grid.set(h3Index, existing);
           });
 
           geojson = {
@@ -452,6 +428,39 @@ io.on("connection", (socket) => {
       console.log("Starting live simulation");
       simulationInterval = setInterval(() => {
         const point = {
+          id: Math.random().toString(36).substr(2, 9),
+          lat: (Math.random() * 180) - 90,
+          lng: (Math.random() * 360) - 180,
+          value: Math.floor(Math.random() * 100),
+          category: ["Security", "Network", "Auth", "DB"][Math.floor(Math.random() * 4)],
+          timestamp: Date.now()
+        };
+        io.emit("live-data", point);
+      }, 1000);
+    }
+  });
+
+  socket.on("stop-live", () => {
+    console.log("Stopping live simulation");
+    if (simulationInterval) {
+      clearInterval(simulationInterval);
+      simulationInterval = null;
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+    if (io.engine.clientsCount === 0 && simulationInterval) {
+      clearInterval(simulationInterval);
+      simulationInterval = null;
+    }
+  });
+});
+
+httpServer.listen(port, () => {
+  console.log(`Backend running at http://localhost:${port}`);
+});
+t point = {
           id: Math.random().toString(36).substr(2, 9),
           lat: (Math.random() * 180) - 90,
           lng: (Math.random() * 360) - 180,

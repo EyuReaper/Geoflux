@@ -110,9 +110,11 @@ const Map = () => {
           })
         }
       } else {
-        const resolution = 1 / Math.pow(2, mapStyle.gridResolution - 2)
+        // For H3, we pass the gridResolution directly as the 'res' parameter,
+        // which the backend will map to an appropriate H3 resolution.
+        const resParam = mapStyle.gridType === 'hex' ? mapStyle.gridResolution : (1 / Math.pow(2, mapStyle.gridResolution - 2));
         const tileUrl = activeModes.includes('area') || activeModes.includes('choropleth')
-          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area&gridType=${mapStyle.gridType}&res=${resolution}`
+          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area&gridType=${mapStyle.gridType}&res=${resParam}`
           : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
         const existingSource = mapInstance.getSource(sourceId)
 
