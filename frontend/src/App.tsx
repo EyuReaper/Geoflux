@@ -60,16 +60,9 @@ function App() {
                 </div>
                 <h2 className="text-3xl font-bold tracking-tight text-white/90">Welcome to GeoFlux</h2>
                 <p className="text-white/40 max-w-xs mx-auto leading-relaxed">
-                  Upload a dataset or load demo data to start exploring global patterns in real-time.
+                  Upload a dataset to start exploring global patterns in real-time.
                 </p>
-                <div className="pt-4 flex gap-3 justify-center pointer-events-auto">
-                   <button 
-                    onClick={() => loadDemoData()}
-                    className="px-6 py-2.5 rounded-full bg-white text-black font-bold text-sm hover:bg-white/90 transition-all shadow-xl"
-                  >
-                    Load Demo
-                  </button>
-                </div>
+                {/* The "Load Demo" button is removed as demo data will no longer be loaded directly from the frontend. */}
               </div>
             </div>
           )}

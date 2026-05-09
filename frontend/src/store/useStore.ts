@@ -758,30 +758,6 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     state.setFilters({})
   },
   
-  loadDemoData: () => {
-    const now = Date.now()
-    const day = 24 * 60 * 60 * 1000
-    const demoPoints: Record<string, unknown>[] = Array.from({ length: 1000 }).map((_, i) => ({
-      lat: (Math.random() - 0.5) * 140,
-      lng: (Math.random() - 0.5) * 360,
-      intensity: Math.random() * 100,
-      group: ['A', 'B', 'C'][Math.floor(Math.random() * 3)],
-      recorded_at: now - (Math.random() * 7 * day),
-      city: 'Demo City ' + i
-    }))
-    
-    set({ fieldMapping: {
-      lat: 'lat',
-      lng: 'lng',
-      value: 'intensity',
-      category: 'group',
-      timestamp: 'recorded_at'
-    }})
-    
-    get().addDataset('Global Simulation', demoPoints)
-    set({ activeModes: ['markers'] })
-  },
-  
   setSelectedEntity: (entity) => set({ selectedEntity: entity, isInspectorOpen: !!entity }),
   closeInspector: () => set({ isInspectorOpen: false, selectedEntity: null }),
 
