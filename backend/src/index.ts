@@ -174,11 +174,13 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
     const x = firstParam(req.params.x);
     const y = firstParam(req.params.y);
     const isAreaMode = req.query.mode === 'area';
+    const gridType = req.query.gridType || 'square';
+    const gridRes = parseFloat(req.query.res as string) || 0.05;
     const zInt = parseInt(z);
     const xInt = parseInt(x);
     const yInt = parseInt(y);
 
-    const cacheKey = `${id}-${isAreaMode ? 'grid' : 'points'}`;
+    const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}`;
     let tileIndex = tileIndexCache.get(cacheKey);
 
     if (!tileIndex) {
@@ -189,42 +191,99 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
       let geojson: GeoJSON.FeatureCollection;
 
       if (isAreaMode) {
-        // Spatial Binning (Square Grid)
-        const resolution = 0.05; // ~5km at equator
-        const grid = new Map<string, { value: number; count: number; lat: number; lng: number }>();
+        const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords?: [number, number][] }>();
 
-        data.forEach((d: any) => {
-          const latBin = Math.floor(d.lat / resolution) * resolution;
-          const lngBin = Math.floor(d.lng / resolution) * resolution;
-          const key = `${latBin},${lngBin}`;
-          
-          const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin };
-          existing.value += (d.value || 0);
-          existing.count += 1;
-          grid.set(key, existing);
-        });
-
-        geojson = {
-          type: "FeatureCollection",
-          features: Array.from(grid.values()).map(cell => ({
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [[
-                [cell.lng, cell.lat],
-                [cell.lng + resolution, cell.lat],
-                [cell.lng + resolution, cell.lat + resolution],
-                [cell.lng, cell.lat + resolution],
-                [cell.lng, cell.lat]
-              ]]
-            },
-            properties: {
-              value: cell.value,
-              count: cell.count,
-              avg: cell.value / cell.count
+        if (gridType === 'hex') {
+          // Hexagonal Binning (Pointy Topped)
+          // Simplified axial mapping: https://www.redblobgames.com/grids/hexagons/
+          const size = gridRes;
+          data.forEach((d: any) => {
+            // Convert lat/lng to axial hex coordinates
+            const q = (Math.sqrt(3)/3 * d.lng - 1/3 * d.lat) / size;
+            const r = (2/3 * d.lat) / size;
+            
+            // Round to nearest hex
+            let rq = Math.round(q);
+            let rr = Math.round(r);
+            let rs = Math.round(-q-r);
+            
+            const dq = Math.abs(rq - q);
+            const dr = Math.abs(rr - r);
+            const ds = Math.abs(rs - (-q-r));
+            
+            if (dq > dr && dq > ds) rq = -rr-rs;
+            else if (dr > ds) rr = -rq-rs;
+            
+            const key = `${rq},${rr}`;
+            const existing = grid.get(key) || { value: 0, count: 0, lat: 0, lng: 0 };
+            
+            if (existing.count === 0) {
+              // Calculate center from hex coords
+              existing.lng = size * (Math.sqrt(3) * rq + Math.sqrt(3)/2 * rr);
+              existing.lat = size * (3/2 * rr);
+              
+              // Generate hexagon polygon
+              const corners: [number, number][] = [];
+              for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 180) * (60 * i - 30);
+                corners.push([
+                  existing.lng + size * Math.cos(angle) * Math.sqrt(3)/1.5, // Squish factor to roughly match Mercator lat
+                  existing.lat + size * Math.sin(angle)
+                ]);
+              }
+              corners.push(corners[0]); // Close polygon
+              existing.coords = corners;
             }
-          }))
-        };
+            
+            existing.value += (d.value || 0);
+            existing.count += 1;
+            grid.set(key, existing);
+          });
+
+          geojson = {
+            type: "FeatureCollection",
+            features: Array.from(grid.values()).map(cell => ({
+              type: "Feature",
+              geometry: { type: "Polygon", coordinates: [cell.coords!] },
+              properties: { value: cell.value, count: cell.count, avg: cell.value / cell.count }
+            }))
+          };
+        } else {
+          // Square Grid
+          const resolution = gridRes;
+          data.forEach((d: any) => {
+            const latBin = Math.floor(d.lat / resolution) * resolution;
+            const lngBin = Math.floor(d.lng / resolution) * resolution;
+            const key = `${latBin},${lngBin}`;
+            
+            const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin };
+            existing.value += (d.value || 0);
+            existing.count += 1;
+            grid.set(key, existing);
+          });
+
+          geojson = {
+            type: "FeatureCollection",
+            features: Array.from(grid.values()).map(cell => ({
+              type: "Feature",
+              geometry: {
+                type: "Polygon",
+                coordinates: [[
+                  [cell.lng, cell.lat],
+                  [cell.lng + resolution, cell.lat],
+                  [cell.lng + resolution, cell.lat + resolution],
+                  [cell.lng, cell.lat + resolution],
+                  [cell.lng, cell.lat]
+                ]]
+              },
+              properties: {
+                value: cell.value,
+                count: cell.count,
+                avg: cell.value / cell.count
+              }
+            }))
+          };
+        }
       } else {
         geojson = {
           type: "FeatureCollection",

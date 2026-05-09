@@ -110,8 +110,9 @@ const Map = () => {
           })
         }
       } else {
+        const resolution = 1 / Math.pow(2, mapStyle.gridResolution - 2)
         const tileUrl = activeModes.includes('area') || activeModes.includes('choropleth')
-          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area`
+          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area&gridType=${mapStyle.gridType}&res=${resolution}`
           : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
         const existingSource = mapInstance.getSource(sourceId)
 
@@ -216,30 +217,25 @@ const Map = () => {
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-opacity', mapStyle.opacity)
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-base', 0)
         } else {
-          // Use circle/fill for 2D
-          if (!mapInstance.getLayer(layerId)) {
+          // Use fill for 2D Grid
+          if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
+          const fillLayerId = `${layerId}-fill`
+          newLayerIds.add(fillLayerId)
+
+          if (!mapInstance.getLayer(fillLayerId)) {
             mapInstance.addLayer({
-              id: layerId,
-              type: 'circle',
+              id: fillLayerId,
+              type: 'fill',
               source: sourceId,
               ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
               paint: {
-                'circle-pitch-alignment': 'map',
-                'circle-pitch-scale': 'viewport',
-                'circle-stroke-width': 1,
-                'circle-stroke-color': 'rgba(255,255,255,0.1)'
+                'fill-outline-color': 'rgba(255,255,255,0.1)'
               }
             })
           }
           
-          const baseRadius = 10 * Math.pow(2, mapStyle.gridResolution - 4)
-          mapInstance.setFilter(layerId, mapLibreFilter)
-          mapInstance.setPaintProperty(layerId, 'circle-radius', [
-            'interpolate', ['exponential', 2], ['zoom'],
-            0, baseRadius / 10,
-            20, baseRadius * 100
-          ])
-          mapInstance.setPaintProperty(layerId, 'circle-color', [
+          mapInstance.setFilter(fillLayerId, mapLibreFilter)
+          mapInstance.setPaintProperty(fillLayerId, 'fill-color', [
             'interpolate', ['linear'], ['get', 'value'],
             0, 'rgba(0,0,0,0)',
             10, mapStyle.colorScale[0],
@@ -247,14 +243,40 @@ const Map = () => {
             60, mapStyle.colorScale[2],
             100, mapStyle.colorScale[3]
           ])
-          mapInstance.setPaintProperty(layerId, 'circle-opacity', mapStyle.opacity)
+          mapInstance.setPaintProperty(fillLayerId, 'fill-opacity', mapStyle.opacity)
         }
       }
 
       // 3. Markers Layer
       if (activeModes.includes('markers')) {
         const layerId = `geoflux-markers-${ds.id}`
+        const pulseLayerId = `${layerId}-pulse`
         newLayerIds.add(layerId)
+        newLayerIds.add(pulseLayerId)
+
+        // Pulse Layer (Bottom)
+        if (!mapInstance.getLayer(pulseLayerId)) {
+          mapInstance.addLayer({
+            id: pulseLayerId,
+            type: 'circle',
+            source: sourceId,
+            ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+            paint: {
+              'circle-radius': [
+                'interpolate', ['linear'], ['zoom'],
+                5, mapStyle.pointSize * 2,
+                15, mapStyle.pointSize * 4
+              ],
+              'circle-color': ds.color,
+              'circle-opacity': 0.2,
+              'circle-stroke-width': 2,
+              'circle-stroke-color': ds.color,
+              'circle-stroke-opacity': 0.1
+            }
+          })
+        }
+
+        // Main Marker Layer (Top)
         if (!mapInstance.getLayer(layerId)) {
             mapInstance.addLayer({
               id: layerId,
@@ -268,7 +290,10 @@ const Map = () => {
             }
           })
         }
+        
         mapInstance.setFilter(layerId, mapLibreFilter)
+        mapInstance.setFilter(pulseLayerId, mapLibreFilter)
+
         mapInstance.setPaintProperty(layerId, 'circle-radius', [
           'interpolate', ['linear'], ['zoom'],
           5, mapStyle.pointSize,
@@ -276,6 +301,24 @@ const Map = () => {
         ])
         mapInstance.setPaintProperty(layerId, 'circle-color', ds.color)
         mapInstance.setPaintProperty(layerId, 'circle-opacity', mapStyle.opacity)
+
+        // Marker Pulse Animation
+        const step = (timestamp: number) => {
+          if (!map.current || !map.current.getLayer(pulseLayerId)) return
+          const duration = 2000
+          const progress = (timestamp % duration) / duration
+          const opacity = 0.4 * (1 - progress)
+          const radiusMult = 1 + progress * 1.5
+          
+          map.current.setPaintProperty(pulseLayerId, 'circle-radius', [
+            'interpolate', ['linear'], ['zoom'],
+            5, mapStyle.pointSize * radiusMult,
+            15, mapStyle.pointSize * 2 * radiusMult
+          ])
+          map.current.setPaintProperty(pulseLayerId, 'circle-opacity', opacity)
+          requestAnimationFrame(step)
+        }
+        requestAnimationFrame(step)
       }
     })
 
