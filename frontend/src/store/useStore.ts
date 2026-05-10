@@ -37,6 +37,10 @@ interface GeoFluxState {
   filters: FilterState
   timeline: TimelineState
   
+  // Spatial Aggregation
+  spatialAggregationConfig: SpatialAggregationConfig
+  aggregatedDatasetId: string | null
+
   // Selection
   selectedEntity: InspectorEntity | null
   // Actions
@@ -78,6 +82,11 @@ interface GeoFluxState {
   stepTimeline: (steps: number) => void
   applyMapping: () => void
   updateGlobalData: () => void
+
+  // Spatial Aggregation Actions
+  setSpatialAggregationConfig: (config: Partial<SpatialAggregationConfig>) => void
+  performSpatialAggregation: () => Promise<void>
+  clearSpatialAggregation: () => void
   
   // Inspector Actions
   setSelectedEntity: (entity: InspectorEntity | null) => void
@@ -152,6 +161,14 @@ const initialState = {
     loopMode: 'loop' as const,
     direction: 1 as const,
   },
+  spatialAggregationConfig: {
+    sourceDatasetId: null,
+    targetGridType: 'hex',
+    gridResolution: 4,
+    aggregationField: null,
+    isEnabled: false,
+  },
+  aggregatedDatasetId: null,
 }
 
 export const API_URL = 'http://localhost:4000'
@@ -541,14 +558,46 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     get().updateGlobalData()
   },
 
-  setActiveDataset: (id) => {
-    const dataset = get().datasets.find(d => d.id === id)
-    if (dataset) {
-      set({ 
-        activeDatasetId: id,
-        rawData: dataset.data.map(d => d.metadata as Record<string, unknown>),
-        availableFields: dataset.data.length > 0 ? Object.keys(dataset.data[0].metadata || {}) : []
-      })
+  setActiveDataset: async (id) => {
+    const { token } = get().auth
+    const existingDataset = get().datasets.find(d => d.id === id)
+
+    if (existingDataset) {
+      if (isLocalDatasetId(existingDataset.id)) {
+        // For local datasets, data is already in store
+        set({
+          activeDatasetId: id,
+          rawData: existingDataset.data.map(d => d.metadata as Record<string, unknown>),
+          availableFields: existingDataset.data.length > 0 ? Object.keys(existingDataset.data[0].metadata || {}) : []
+        })
+      } else if (token) {
+        // For remote datasets, fetch full data
+        set({ isLoading: true, error: null })
+        try {
+          const response = await fetch(`${API_URL}/datasets/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (!response.ok) {
+            if (response.status === 403) get().logout()
+            throw new Error('Failed to fetch full dataset data')
+          }
+          const fullDataset = await response.json()
+          
+          // Update the dataset in the store with full data
+          set((state) => ({
+            datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data } : d)
+          }))
+
+          set({
+            activeDatasetId: id,
+            rawData: fullDataset.data.map((d: any) => d.metadata as Record<string, unknown>),
+            availableFields: fullDataset.data.length > 0 ? Object.keys(fullDataset.data[0].metadata || {}) : [],
+            isLoading: false
+          })
+        } catch (err) {
+          set({ error: (err as Error).message, isLoading: false })
+        }
+      }
     } else {
       set({ activeDatasetId: null, rawData: [], availableFields: [] })
     }

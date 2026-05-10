@@ -52,6 +52,15 @@ export type Dataset = {
     min: number;
     max: number;
   };
+  aggregatedGeoJson?: GeoJSON.FeatureCollection; // For displaying spatial aggregations
+};
+
+export type SpatialAggregationConfig = {
+  sourceDatasetId: string | null;
+  targetGridType: 'square' | 'hex';
+  gridResolution: number; // For hex: 1-8, for square: actual resolution value (float)
+  aggregationField: string | null; // Field from metadata to aggregate by
+  isEnabled: boolean;
 };
 
 export type FilterState = {
