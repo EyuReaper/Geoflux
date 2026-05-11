@@ -5,6 +5,7 @@ import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { VisualizationMode } from '../types'
 import AnalyticsPanel from './AnalyticsPanel'
+import SpatialAnalysis from './SpatialAnalysis'
 
 const RightPanel = () => {
   const { 
@@ -296,6 +297,10 @@ const RightPanel = () => {
           </div>
         </div>
 
+
+        <div className="pt-6 border-t border-white/5">
+          <SpatialAnalysis />
+        </div>
 
         {data.length > 0 && (
           <AnalyticsPanel />

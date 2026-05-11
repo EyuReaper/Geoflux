@@ -13,6 +13,7 @@ import { authenticateToken } from "./middleware/auth.js";
 import type { AuthRequest } from "./middleware/auth.js";
 import geojsonvt from "geojson-vt";
 import vtpbf from "vt-pbf";
+import * as h3 from "h3-js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -195,10 +196,6 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
         const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords?: [number, number][] }>();
 
         if (gridType === 'hex') {
-          // H3 Hexagonal Binning
-          // gridRes (frontend) is a value from 1 to 8. H3 resolution is from 0-15.
-          // We can map gridRes to a reasonable H3 resolution.
-          // For example, gridRes 1-8 can map to H3 res 3-10.
           const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2)); 
 
           data.forEach((d: any) => {
@@ -209,7 +206,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
               const [lat, lng] = h3.cellToLatLng(h3Index);
               existing.lat = lat;
               existing.lng = lng;
-              existing.coords = h3.cellToBoundary(h3Index, true); // GeoJson-like polygon
+              existing.coords = h3.cellToBoundary(h3Index, true);
             }
             
             existing.value += (d.value || 0);
@@ -226,7 +223,6 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
             }))
           };
         } else {
-          // Square Grid
           const resolution = gridRes;
           data.forEach((d: any) => {
             const latBin = Math.floor(d.lat / resolution) * resolution;
@@ -326,7 +322,7 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
 app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
     const sourceDatasetId = firstParam(req.params.id);
-    const { targetGridType, gridResolution, aggregationField } = req.body; // gridResolution is for frontend input (1-8 for hex, or float for square)
+    const { targetGridType, gridResolution, aggregationField } = req.body;
 
     if (!sourceDatasetId || !targetGridType || !gridResolution) {
       return res.status(400).json({ error: "Missing required parameters: sourceDatasetId, targetGridType, gridResolution" });
@@ -339,13 +335,12 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
 
     const sourceData = sourceDataset.data as any[];
     if (!sourceData || sourceData.length === 0) {
-      return res.status(200).json({ features: [] }); // Return empty if no data
+      return res.status(200).json({ features: [] });
     }
 
     const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
 
     if (targetGridType === 'hex') {
-      // Map frontend gridResolution (1-8) to H3 resolution (e.g., 3-10)
       const h3Resolution = Math.min(10, Math.max(3, Math.round(gridResolution) + 2)); 
 
       sourceData.forEach((d: any) => {
@@ -368,7 +363,7 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
         grid.set(h3Index, existing);
       });
     } else if (targetGridType === 'square') {
-      const resolution = parseFloat(gridResolution as string); // Frontend sends actual float for square grid res
+      const resolution = parseFloat(gridResolution as string);
       sourceData.forEach((d: any) => {
         if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
         const latBin = Math.floor(d.lat / resolution) * resolution;
@@ -419,7 +414,6 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
 });
 
 app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
-
   try {
     const id = firstParam(req.params.id);
     const dataset = await prisma.dataset.findUnique({ where: { id } });
@@ -471,9 +465,7 @@ app.get("/workspaces/:id", async (req, res) => {
 
     if (!workspace) return res.status(404).json({ error: "Workspace not found" });
 
-    // If it's not public, check if the requester is the owner
     if (!workspace.isPublic) {
-      // Simple check for owner if token provided, otherwise deny
       const authHeader = req.headers.authorization;
       if (!authHeader) return res.status(403).json({ error: "Access denied" });
       
@@ -527,39 +519,6 @@ io.on("connection", (socket) => {
       console.log("Starting live simulation");
       simulationInterval = setInterval(() => {
         const point = {
-          id: Math.random().toString(36).substr(2, 9),
-          lat: (Math.random() * 180) - 90,
-          lng: (Math.random() * 360) - 180,
-          value: Math.floor(Math.random() * 100),
-          category: ["Security", "Network", "Auth", "DB"][Math.floor(Math.random() * 4)],
-          timestamp: Date.now()
-        };
-        io.emit("live-data", point);
-      }, 1000);
-    }
-  });
-
-  socket.on("stop-live", () => {
-    console.log("Stopping live simulation");
-    if (simulationInterval) {
-      clearInterval(simulationInterval);
-      simulationInterval = null;
-    }
-  });
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
-    if (io.engine.clientsCount === 0 && simulationInterval) {
-      clearInterval(simulationInterval);
-      simulationInterval = null;
-    }
-  });
-});
-
-httpServer.listen(port, () => {
-  console.log(`Backend running at http://localhost:${port}`);
-});
-t point = {
           id: Math.random().toString(36).substr(2, 9),
           lat: (Math.random() * 180) - 90,
           lng: (Math.random() * 360) - 180,

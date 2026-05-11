@@ -88,10 +88,21 @@ const Map = () => {
     visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
       newSourceIds.add(sourceId)
-      const isLocalDataset = ds.data.length > 0
-      const sourceLayer = isLocalDataset ? undefined : 'geoflux-layer'
+      const isLocalData = ds.data.length > 0
+      const isAggregated = !!ds.aggregatedGeoJson
+      const sourceLayer = (isLocalData || isAggregated) ? undefined : 'geoflux-layer'
 
-      if (isLocalDataset) {
+      if (isAggregated) {
+        const existingSource = mapInstance.getSource(sourceId)
+        if (!existingSource) {
+          mapInstance.addSource(sourceId, {
+            type: 'geojson',
+            data: ds.aggregatedGeoJson!
+          })
+        } else if ('setData' in existingSource) {
+          ;(existingSource as maplibregl.GeoJSONSource).setData(ds.aggregatedGeoJson!)
+        }
+      } else if (isLocalData) {
         const geoJson = buildGeoJson(ds.data)
         const existingSource = mapInstance.getSource(sourceId)
 

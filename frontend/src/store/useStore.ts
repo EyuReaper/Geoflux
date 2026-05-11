@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { io, type Socket } from 'socket.io-client'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialAggregationConfig } from '../types/index'
 
 interface GeoFluxState {
   // Auth
@@ -22,21 +22,21 @@ interface GeoFluxState {
   fieldMapping: FieldMapping
   isLoading: boolean
   error: string | null
-  
+
   // UI State
   activeModes: VisualizationMode[]
   isSidebarOpen: boolean
   isRightPanelOpen: boolean
   isInspectorOpen: boolean
   isLive: boolean
-  
+
   // Map Config
   mapState: MapState
   mapStyle: MapStyle
   mapStyleType: 'dark' | 'light'
   filters: FilterState
   timeline: TimelineState
-  
+
   // Spatial Aggregation
   spatialAggregationConfig: SpatialAggregationConfig
   aggregatedDatasetId: string | null
@@ -56,11 +56,9 @@ interface GeoFluxState {
   setViewportFilteredData: (data: DataPoint[]) => void
 
   addTransformation: (name: string, expression: string) => void
-  // ...
-
   removeTransformation: (id: string) => void
   toggleTransformation: (id: string) => void
-  
+
   setData: (data: DataPoint[]) => void
   setRawData: (rawData: Record<string, unknown>[]) => void
   setFieldMapping: (mapping: Partial<FieldMapping>) => void
@@ -83,11 +81,10 @@ interface GeoFluxState {
   applyMapping: () => void
   updateGlobalData: () => void
 
-  // Spatial Aggregation Actions
   setSpatialAggregationConfig: (config: Partial<SpatialAggregationConfig>) => void
   performSpatialAggregation: () => Promise<void>
   clearSpatialAggregation: () => void
-  
+
   // Inspector Actions
   setSelectedEntity: (entity: InspectorEntity | null) => void
   closeInspector: () => void
@@ -134,7 +131,7 @@ const initialState = {
     bearing: 0,
   },
   mapStyle: {
-    pointColor: '#06b6d4', 
+    pointColor: '#06b6d4',
     pointSize: 5,
     opacity: 0.8,
     heatmapIntensity: 1,
@@ -253,14 +250,17 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       })
-      if (!response.ok) throw new Error('Invalid credentials')
-      const { token, user } = await response.json()
-      localStorage.setItem('geoflux_token', token)
-      set({ auth: { token, user, isAuthenticated: true }, isLoading: false })
-      get().fetchDatasets()
-      get().fetchWorkspaces()
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Invalid credentials');
+
+      const { token, user } = data;
+      localStorage.setItem('geoflux_token', token);
+      set({ auth: { token, user, isAuthenticated: true }, isLoading: false });
+      
+      await Promise.all([get().fetchDatasets(), get().fetchWorkspaces()]);
     } catch (err) {
-      set({ error: (err as Error).message, isLoading: false })
+      set({ error: err instanceof Error ? err.message : 'Login failed', isLoading: false });
     }
   },
 
@@ -314,9 +314,8 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         throw new Error('Failed to fetch datasets')
       }
       const data = await response.json() as DatasetSummary[]
-      
+
       const datasets = await Promise.all(data.map(async (d) => {
-        // Fetch stats for each dataset
         try {
           const statsRes = await fetch(`${API_URL}/datasets/${d.id}/stats`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -340,7 +339,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
           }
         }
       }))
-      
+
       const localDatasets = get().datasets.filter((dataset) => isLocalDatasetId(dataset.id))
       set({ datasets: [...localDatasets, ...datasets], isLoading: false })
       get().updateGlobalData()
@@ -374,13 +373,13 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       })
       if (!response.ok) throw new Error('Workspace not found or access denied')
       const workspace = await response.json()
-      
+
       const config = workspace.config
       if (config.mapState) set({ mapState: { ...get().mapState, ...config.mapState } })
       if (config.mapStyle) set({ mapStyle: { ...get().mapStyle, ...config.mapStyle } })
       if (config.activeModes) set({ activeModes: config.activeModes })
       if (config.activeDatasetId) get().setActiveDataset(config.activeDatasetId)
-      
+
       set({ isLoading: false })
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false })
@@ -390,7 +389,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   saveWorkspace: async (name) => {
     const { token } = get().auth
     if (!token) return
-    
+
     const config = {
       mapState: get().mapState,
       mapStyle: get().mapStyle,
@@ -401,7 +400,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     try {
       const response = await fetch(`${API_URL}/workspaces`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -422,7 +421,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     try {
       const response = await fetch(`${API_URL}/workspaces/${id}/share`, {
         method: 'PATCH',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -471,17 +470,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       set({ isLoading: true })
       const response = await fetch(`${API_URL}/datasets`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ name, color, data: mappedData })
       })
-      
+
       if (!response.ok) throw new Error('Failed to save dataset')
       const savedDataset = await response.json()
-      
-      // Fetch stats for the new dataset
+
       let stats;
       try {
         const statsRes = await fetch(`${API_URL}/datasets/${savedDataset.id}/stats`, {
@@ -497,16 +495,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         name: savedDataset.name,
         color: savedDataset.color,
         isVisible: true,
-        data: [], // Data is served via MVT
+        data: [], 
         stats
       }
 
-      set((state) => ({ 
+      set((state) => ({
         datasets: [...state.datasets, newDataset],
         activeDatasetId: savedDataset.id,
         isLoading: false
       }))
-      
+
       get().updateGlobalData()
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false })
@@ -531,18 +529,18 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
     try {
       set({ isLoading: true })
-      const response = await fetch(`${API_URL}/datasets/${id}`, { 
+      const response = await fetch(`${API_URL}/datasets/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (!response.ok) throw new Error('Failed to delete dataset')
-      
+
       set((state) => {
         const datasets = state.datasets.filter(d => d.id !== id)
-        const activeDatasetId = state.activeDatasetId === id 
-          ? (datasets.length > 0 ? datasets[0].id : null) 
+        const activeDatasetId = state.activeDatasetId === id
+          ? (datasets.length > 0 ? datasets[0].id : null)
           : state.activeDatasetId
-        
+
         return { datasets, activeDatasetId, isLoading: false }
       })
       get().updateGlobalData()
@@ -564,14 +562,12 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
     if (existingDataset) {
       if (isLocalDatasetId(existingDataset.id)) {
-        // For local datasets, data is already in store
         set({
           activeDatasetId: id,
           rawData: existingDataset.data.map(d => d.metadata as Record<string, unknown>),
           availableFields: existingDataset.data.length > 0 ? Object.keys(existingDataset.data[0].metadata || {}) : []
         })
       } else if (token) {
-        // For remote datasets, fetch full data
         set({ isLoading: true, error: null })
         try {
           const response = await fetch(`${API_URL}/datasets/${id}`, {
@@ -582,8 +578,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             throw new Error('Failed to fetch full dataset data')
           }
           const fullDataset = await response.json()
-          
-          // Update the dataset in the store with full data
+
           set((state) => ({
             datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data } : d)
           }))
@@ -625,34 +620,80 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     get().applyMapping()
   },
 
-  updateGlobalData: () => {
-    const allData = get().datasets
-      .filter(d => d.isVisible)
-      .flatMap(d => d.data)
-    
-    set({ data: allData })
-    get().setFilters({})
+  setSpatialAggregationConfig: (config) => {
+    set((state) => ({
+      spatialAggregationConfig: { ...state.spatialAggregationConfig, ...config }
+    }))
+  },
+
+  performSpatialAggregation: async () => {
+    const { spatialAggregationConfig, auth } = get()
+    if (!spatialAggregationConfig.sourceDatasetId || !auth.token) return
+
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/datasets/${spatialAggregationConfig.sourceDatasetId}/spatial-aggregate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          targetGridType: spatialAggregationConfig.targetGridType,
+          gridResolution: spatialAggregationConfig.gridResolution,
+          aggregationField: spatialAggregationConfig.aggregationField
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to perform spatial aggregation')
+      const aggregatedGeoJson = await response.json()
+
+      const sourceDataset = get().datasets.find(d => d.id === spatialAggregationConfig.sourceDatasetId)
+      const newDataset: Dataset = {
+        id: `agg-${Date.now()}`,
+        name: `Aggregated: ${sourceDataset?.name || 'Dataset'}`,
+        color: '#f97316',
+        isVisible: true,
+        data: [],
+        aggregatedGeoJson
+      }
+
+      set((state) => ({
+        datasets: [...state.datasets, newDataset],
+        activeDatasetId: newDataset.id,
+        isLoading: false,
+        aggregatedDatasetId: newDataset.id
+      }))
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
+    }
+  },
+
+  clearSpatialAggregation: () => {
+    set((state) => ({
+      aggregatedDatasetId: null,
+      datasets: state.datasets.filter(d => !d.id.startsWith('agg-'))
+    }))
   },
 
   setData: (data) => {
     const times = data.map(d => typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()).filter(t => t > 0)
-    
+
     if (times.length > 0) {
       const min = Math.min(...times)
       const max = Math.max(...times)
-      set({ 
-        data, 
+      set({
+        data,
         isLoading: false,
         timeline: { ...get().timeline, startTime: min, endTime: max, currentTime: max }
       })
     } else {
       set({ data, isLoading: false, timeline: { ...get().timeline, startTime: 0, endTime: 0, currentTime: 0 } })
     }
-    
-    // Initial filter will populate filteredData and viewportFilteredData
-    get().setFilters({}) 
+
+    get().setFilters({})
   },
-  
+
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error, isLoading: false }),
   toggleMode: (mode) => set((state) => ({
@@ -661,11 +702,10 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       : [...state.activeModes, mode]
   })),
   setMapState: (state) => {
-    set((prev) => ({ 
-      mapState: { ...prev.mapState, ...state } 
+    set((prev) => ({
+      mapState: { ...prev.mapState, ...state }
     }))
-    
-    // Only filter by bounds if we have in-memory data
+
     const { mapState, filteredData, data } = get()
     if (data.length > 0) {
       if (!mapState.bounds) {
@@ -674,30 +714,29 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       }
 
       const { sw, ne } = mapState.bounds
-      const viewportFilteredData = filteredData.filter(d => 
+      const viewportFilteredData = filteredData.filter(d =>
         d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
       )
       set({ viewportFilteredData })
     }
   },
-  updateMapStyle: (style) => set((prev) => ({ 
-    mapStyle: { ...prev.mapStyle, ...style } 
+  updateMapStyle: (style) => set((prev) => ({
+    mapStyle: { ...prev.mapStyle, ...style }
   })),
   setMapStyleType: (mapStyleType) => set({ mapStyleType }),
-  
+
   setFilters: (newFilters) => {
     const state = get()
     const filters = { ...state.filters, ...newFilters }
-    
-    // Only filter if we have in-memory data
+
     if (state.data.length > 0) {
       const filteredData = state.data.filter(d => {
         const val = d.value || 0
         const matchesValue = val >= filters.minValue && val <= filters.maxValue
         const matchesCategory = filters.categories.length === 0 || (d.category && filters.categories.includes(d.category))
-        const matchesSearch = !filters.searchQuery || 
+        const matchesSearch = !filters.searchQuery ||
           JSON.stringify(d.metadata || {}).toLowerCase().includes(filters.searchQuery.toLowerCase())
-        
+
         let matchesTime = true
         if (state.timeline.startTime !== state.timeline.endTime) {
           const dTime = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime()
@@ -705,18 +744,18 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             matchesTime = dTime <= state.timeline.currentTime
           }
         }
-        
+
         return matchesValue && matchesCategory && matchesSearch && matchesTime
       })
-      
+
       let viewportFilteredData = filteredData
       if (state.mapState.bounds) {
         const { sw, ne } = state.mapState.bounds
-        viewportFilteredData = filteredData.filter(d => 
+        viewportFilteredData = filteredData.filter(d =>
           d.lng >= sw[0] && d.lng <= ne[0] && d.lat >= sw[1] && d.lat <= ne[1]
         )
       }
-      
+
       set({ filters, filteredData, viewportFilteredData })
     } else {
       set({ filters })
@@ -728,8 +767,8 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     get().setFilters({})
   },
 
-  togglePlayback: () => set((state) => ({ 
-    timeline: { ...state.timeline, isPlaying: !state.timeline.isPlaying } 
+  togglePlayback: () => set((state) => ({
+    timeline: { ...state.timeline, isPlaying: !state.timeline.isPlaying }
   })),
 
   tickTimeline: () => {
@@ -760,7 +799,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         setTimeline({ isPlaying: false })
       }
     }
-    
+
     setTimeline({ currentTime: nextTime })
   },
 
@@ -768,13 +807,13 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     const { timeline, setTimeline } = get()
     const delta = (timeline.endTime - timeline.startTime) / 100 * steps
     let nextTime = timeline.currentTime + delta
-    
+
     if (nextTime > timeline.endTime) nextTime = timeline.endTime
     if (nextTime < timeline.startTime) nextTime = timeline.startTime
-    
+
     setTimeline({ currentTime: nextTime })
   },
-  
+
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
   toggleLive: () => {
@@ -784,7 +823,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         socket = io(API_URL)
         socket.on('live-data', (point: DataPoint) => {
           set((state) => {
-            const newData = [...state.data, point].slice(-5000) // Keep last 5000 points
+            const newData = [...state.data, point].slice(-5000)
             return { data: newData }
           })
           get().setFilters({})
@@ -796,7 +835,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     }
     set({ isLive: !isLive })
   },
-  
+
   updateDataPoints: () => {
     const state = get()
     const newData = state.data.map(d => ({
@@ -806,22 +845,18 @@ export const useStore = create<GeoFluxState>((set, get) => ({
     set({ data: newData })
     state.setFilters({})
   },
-  
-  setSelectedEntity: (entity) => set({ selectedEntity: entity, isInspectorOpen: !!entity }),
-  closeInspector: () => set({ isInspectorOpen: false, selectedEntity: null }),
 
   setRawData: (rawData) => {
     if (rawData.length === 0) {
       set({ rawData: [], availableFields: [], fieldMapping: defaultMapping })
       return
     }
-    
+
     const fields = Object.keys(rawData[0])
-    
-    // Auto-detect fields only if current mapping is empty or default
+
     const currentMapping = get().fieldMapping
     const isDefault = currentMapping.lat === '' && currentMapping.lng === ''
-    
+
     if (isDefault) {
       const mapping: FieldMapping = {
         lat: fields.find(f => /lat|latitude/i.test(f)) || fields[0] || '',
@@ -832,7 +867,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       }
       set({ fieldMapping: mapping })
     }
-    
+
     set({ rawData, availableFields: fields })
     get().applyMapping()
   },
@@ -840,7 +875,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   applyMapping: () => {
     const { rawData, fieldMapping, transformations } = get()
     if (rawData.length === 0) return
-    
+
     const mappedData: DataPoint[] = rawData.map((d, i) => {
       let value = fieldMapping.value ? Number(d[fieldMapping.value] || 0) : 1
       transformations.filter(t => t.active).forEach(t => {
@@ -857,7 +892,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         metadata: d
       }
     })
-    
+
     get().setData(mappedData)
   },
 
