@@ -74,7 +74,6 @@ interface GeoFluxState {
   toggleRightPanel: () => void
   toggleLive: () => void
   togglePlayback: () => void
-  loadDemoData: () => void
   updateDataPoints: () => void
   tickTimeline: () => void
   stepTimeline: (steps: number) => void
@@ -899,5 +898,24 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   setFieldMapping: (newMapping) => {
     set((state) => ({ fieldMapping: { ...state.fieldMapping, ...newMapping } }))
     get().applyMapping()
+  },
+
+  updateGlobalData: () => {
+    const { datasets } = get()
+    const visibleDatasets = datasets.filter(d => d.isVisible)
+    
+    // Aggregate data from all visible datasets
+    // Note: Only works for datasets that have 'data' loaded (local or small remote)
+    const allData = visibleDatasets.flatMap(ds => ds.data)
+    
+    get().setData(allData)
+  },
+
+  setSelectedEntity: (selectedEntity) => {
+    set({ selectedEntity, isInspectorOpen: !!selectedEntity })
+  },
+
+  closeInspector: () => {
+    set({ isInspectorOpen: false, selectedEntity: null })
   }
 }))

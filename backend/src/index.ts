@@ -7,8 +7,9 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../prisma/generated/prisma/client.js";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import { authenticateToken } from "./middleware/auth.js";
 import type { AuthRequest } from "./middleware/auth.js";
 import geojsonvt from "geojson-vt";
@@ -31,9 +32,8 @@ const port = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 
 // Initialize Prisma
-const rawUrl = process.env.DATABASE_URL || "file:./prisma/dev.db";
-const dbPath = path.resolve(__dirname, "..", rawUrl.replace("file:", ""));
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 // Tile Cache
