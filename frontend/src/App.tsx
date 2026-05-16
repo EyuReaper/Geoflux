@@ -10,7 +10,7 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from '
 import { cn } from './lib/utils'
 
 function App() {
-  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, loadDemoData, fetchDatasets, loadWorkspace } = useStore()
+  const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, fetchDatasets, loadWorkspace } = useStore()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)

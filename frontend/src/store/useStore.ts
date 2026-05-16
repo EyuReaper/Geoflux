@@ -159,7 +159,7 @@ const initialState = {
   },
   spatialAggregationConfig: {
     sourceDatasetId: null,
-    targetGridType: 'hex',
+    targetGridType: 'hex' as const,
     gridResolution: 4,
     aggregationField: null,
     isEnabled: false,

@@ -193,14 +193,14 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
       let geojson: GeoJSON.FeatureCollection;
 
       if (isAreaMode) {
-        const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords?: [number, number][] }>();
+        const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
 
         if (gridType === 'hex') {
           const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2)); 
 
           data.forEach((d: any) => {
             const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
-            const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0 };
+            const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] as [number, number][] };
             
             if (existing.count === 0) {
               const [lat, lng] = h3.cellToLatLng(h3Index);
@@ -218,7 +218,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
             type: "FeatureCollection",
             features: Array.from(grid.values()).map(cell => ({
               type: "Feature",
-              geometry: { type: "Polygon", coordinates: [cell.coords!] },
+              geometry: { type: "Polygon", coordinates: [cell.coords] },
               properties: { value: cell.value, count: cell.count, avg: cell.value / cell.count }
             }))
           };
@@ -229,7 +229,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
             const lngBin = Math.floor(d.lng / resolution) * resolution;
             const key = `${latBin},${lngBin}`;
             
-            const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin };
+            const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] as [number, number][] };
             existing.value += (d.value || 0);
             existing.count += 1;
             grid.set(key, existing);
@@ -372,13 +372,13 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
         
         const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] };
         if (existing.count === 0) {
-          existing.coords = [[
+          existing.coords = [
             [lngBin, latBin],
             [lngBin + resolution, latBin],
             [lngBin + resolution, latBin + resolution],
             [lngBin, latBin + resolution],
             [lngBin, latBin]
-          ]];
+          ];
         }
         
         const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'

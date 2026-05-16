@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Upload, Share2, Play, Activity, LogIn, LogOut, Save } from 'lucide-react'
+import { Upload, Share2, Activity, LogIn, LogOut, Save } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { AuthModal } from './AuthModal'
 
 const Navbar = () => {
-  const { loadDemoData, isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace, workspaces, toggleWorkspaceSharing } = useStore()
+  const { isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace, workspaces, toggleWorkspaceSharing } = useStore()
   const [showAuth, setShowAuth] = useState(false)
 
   const handleSave = () => {
@@ -82,13 +82,6 @@ const Navbar = () => {
 
           <div className="h-6 w-px bg-white/10 mx-1" />
 
-          <button 
-            onClick={() => loadDemoData()}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-sm font-medium transition-all text-white/80"
-          >
-            <Play size={16} />
-            Demo Data
-          </button>
           <button 
             onClick={handleShare}
             className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-sm font-medium transition-all text-white/80"
