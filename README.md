@@ -88,14 +88,15 @@ npm run start
 ## 5) Known Current Blockers
 
 As of May 16, 2026:
-- Backend TypeScript build fails due to typing issues in `backend/src/index.ts`
-- Frontend TypeScript build fails due to store/type drift (for example `loadDemoData` and `targetGridType`)
+- Build/test/lint gates are passing for backend and frontend.
+- Runtime blocker remains: backend startup fails with Prisma provider mismatch (`sqlite` vs `@prisma/adapter-pg`) and must be aligned before release.
 
-These should be fixed before release cut.
+Release should be blocked until runtime startup is green.
 
 ## 6) Suggested Release Gate
 
 Ship only when all are green:
 - `backend`: `npm run build`
-- `frontend`: `npm run test` and `npm run build`
+- `frontend`: `npm run lint`, `npm run test`, and `npm run build`
+- `backend`: runtime smoke (`npm run dev` boot + `/health` response)
 - DB migrations applied successfully in target environment
