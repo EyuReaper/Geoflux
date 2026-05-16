@@ -89,9 +89,9 @@ npm run start
 
 As of May 16, 2026:
 - Build/test/lint gates are passing for backend and frontend.
-- Runtime blocker remains: backend startup fails with Prisma provider mismatch (`sqlite` vs `@prisma/adapter-pg`) and must be aligned before release.
+- Runtime smoke check is passing (`backend` boots and `/health` returns `200`).
 
-Release should be blocked until runtime startup is green.
+No active release blocker at this stage.
 
 ## 6) Suggested Release Gate
 
