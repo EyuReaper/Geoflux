@@ -88,14 +88,15 @@ npm run start
 ## 5) Known Current Blockers
 
 As of May 16, 2026:
-- Backend TypeScript build fails due to typing issues in `backend/src/index.ts`
-- Frontend TypeScript build fails due to store/type drift (for example `loadDemoData` and `targetGridType`)
+- Build/test/lint gates are passing for backend and frontend.
+- Runtime smoke check is passing (`backend` boots and `/health` returns `200`).
 
-These should be fixed before release cut.
+No active release blocker at this stage.
 
 ## 6) Suggested Release Gate
 
 Ship only when all are green:
 - `backend`: `npm run build`
-- `frontend`: `npm run test` and `npm run build`
+- `frontend`: `npm run lint`, `npm run test`, and `npm run build`
+- `backend`: runtime smoke (`npm run dev` boot + `/health` response)
 - DB migrations applied successfully in target environment

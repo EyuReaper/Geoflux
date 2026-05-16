@@ -3,11 +3,11 @@ import express from "express";
 import cors from "cors";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "../prisma/generated/prisma/client.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { authenticateToken } from "./middleware/auth.js";
@@ -18,6 +18,8 @@ import * as h3 from "h3-js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require("../prisma/generated/prisma/client.js");
 
 const app = express();
 const httpServer = createServer(app);

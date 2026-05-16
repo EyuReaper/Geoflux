@@ -12,9 +12,23 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          maplibre: ['maplibre-gl'],
-          leaflet: ['leaflet', 'react-leaflet'],
+        manualChunks(id) {
+          if (id.includes('node_modules/maplibre-gl')) return 'maplibre'
+          if (id.includes('node_modules/react-leaflet') || id.includes('node_modules/leaflet')) return 'leaflet'
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/')
+          ) return 'react-core'
+          if (
+            id.includes('node_modules/zustand/') ||
+            id.includes('node_modules/socket.io-client/')
+          ) return 'state-realtime'
+          if (
+            id.includes('node_modules/lucide-react/') ||
+            id.includes('node_modules/clsx/') ||
+            id.includes('node_modules/tailwind-merge/')
+          ) return 'ui-utils'
         },
       },
     },
