@@ -172,6 +172,7 @@ export const API_URL = 'http://localhost:4000'
 let socket: Socket | null = null
 
 type DatasetSummary = Pick<Dataset, 'id' | 'name' | 'color'>;
+type DatasetDetailResponse = Pick<Dataset, 'id'> & { data: DataPoint[] };
 const LOCAL_DATASET_PREFIX = 'local-'
 
 const toTimestampValue = (value: unknown) => value as DataPoint['timestamp']
@@ -576,7 +577,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             if (response.status === 403) get().logout()
             throw new Error('Failed to fetch full dataset data')
           }
-          const fullDataset = await response.json()
+          const fullDataset = await response.json() as DatasetDetailResponse
 
           set((state) => ({
             datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data } : d)
@@ -584,7 +585,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
           set({
             activeDatasetId: id,
-            rawData: fullDataset.data.map((d: any) => d.metadata as Record<string, unknown>),
+            rawData: fullDataset.data.map((d) => d.metadata as Record<string, unknown>),
             availableFields: fullDataset.data.length > 0 ? Object.keys(fullDataset.data[0].metadata || {}) : [],
             isLoading: false
           })

@@ -1,5 +1,4 @@
-import { useEffect } from 'react'
-import Map from './components/Map'
+import { Suspense, lazy, useEffect } from 'react'
 import Navbar from './components/Navbar'
 import Sidebar from './components/Sidebar'
 import RightPanel from './components/RightPanel'
@@ -8,6 +7,8 @@ import Inspector from './components/Inspector'
 import { useStore } from './store/useStore'
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { cn } from './lib/utils'
+
+const Map = lazy(() => import('./components/Map'))
 
 function App() {
   const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, fetchDatasets, loadWorkspace } = useStore()
@@ -50,7 +51,9 @@ function App() {
         <Sidebar />
         
         <div className="flex-1 relative bg-black">
-          <Map />
+          <Suspense fallback={<div className="absolute inset-0 bg-black" />}>
+            <Map />
+          </Suspense>
           
           {data.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center z-[500] pointer-events-none">
