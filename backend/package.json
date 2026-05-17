@@ -8,7 +8,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.ts"
+    "start": "node dist/src/index.js",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "gate:runtime": "npm run build && npm run smoke:runtime"
   },
   "keywords": [],
   "author": "",
