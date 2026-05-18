@@ -172,7 +172,6 @@ export const API_URL = 'http://localhost:4000'
 let socket: Socket | null = null
 
 type DatasetSummary = Pick<Dataset, 'id' | 'name' | 'color'>;
-type DatasetDetailResponse = Pick<Dataset, 'id'> & { data: DataPoint[] };
 const LOCAL_DATASET_PREFIX = 'local-'
 
 const toTimestampValue = (value: unknown) => value as DataPoint['timestamp']
@@ -577,16 +576,21 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             if (response.status === 403) get().logout()
             throw new Error('Failed to fetch full dataset data')
           }
-          const fullDataset = await response.json() as DatasetDetailResponse
+          const fullDataset = await response.json()
 
           set((state) => ({
-            datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data } : d)
+            datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data, type: fullDataset.type } : d)
           }))
+
+          const isGrid = fullDataset.type === 'grid'
+          const rawData = isGrid 
+            ? fullDataset.data.map((f: any) => f.properties)
+            : fullDataset.data.map((d: any) => d.metadata as Record<string, unknown>)
 
           set({
             activeDatasetId: id,
-            rawData: fullDataset.data.map((d) => d.metadata as Record<string, unknown>),
-            availableFields: fullDataset.data.length > 0 ? Object.keys(fullDataset.data[0].metadata || {}) : [],
+            rawData,
+            availableFields: rawData.length > 0 ? Object.keys(rawData[0] || {}) : [],
             isLoading: false
           })
         } catch (err) {
@@ -641,29 +645,50 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         body: JSON.stringify({
           targetGridType: spatialAggregationConfig.targetGridType,
           gridResolution: spatialAggregationConfig.gridResolution,
-          aggregationField: spatialAggregationConfig.aggregationField
+          aggregationField: spatialAggregationConfig.aggregationField,
+          persist: spatialAggregationConfig.persist,
+          name: spatialAggregationConfig.customName
         })
       })
 
       if (!response.ok) throw new Error('Failed to perform spatial aggregation')
-      const aggregatedGeoJson = await response.json()
+      
+      const result = await response.json()
 
-      const sourceDataset = get().datasets.find(d => d.id === spatialAggregationConfig.sourceDatasetId)
-      const newDataset: Dataset = {
-        id: `agg-${Date.now()}`,
-        name: `Aggregated: ${sourceDataset?.name || 'Dataset'}`,
-        color: '#f97316',
-        isVisible: true,
-        data: [],
-        aggregatedGeoJson
+      if (spatialAggregationConfig.persist) {
+        // Result is a full Dataset object from the server
+        const newDataset: Dataset = {
+          ...result,
+          isVisible: true,
+          data: [] // Grid data is served via tiles
+        }
+
+        set((state) => ({
+          datasets: [...state.datasets, newDataset],
+          activeDatasetId: newDataset.id,
+          isLoading: false,
+          aggregatedDatasetId: newDataset.id
+        }))
+      } else {
+        // Result is GeoJSON for transient display
+        const sourceDataset = get().datasets.find(d => d.id === spatialAggregationConfig.sourceDatasetId)
+        const newDataset: Dataset = {
+          id: `agg-${Date.now()}`,
+          name: `Aggregated: ${sourceDataset?.name || 'Dataset'}`,
+          color: '#f97316',
+          type: 'grid',
+          isVisible: true,
+          data: [],
+          aggregatedGeoJson: result
+        }
+
+        set((state) => ({
+          datasets: [...state.datasets, newDataset],
+          activeDatasetId: newDataset.id,
+          isLoading: false,
+          aggregatedDatasetId: newDataset.id
+        }))
       }
-
-      set((state) => ({
-        datasets: [...state.datasets, newDataset],
-        activeDatasetId: newDataset.id,
-        isLoading: false,
-        aggregatedDatasetId: newDataset.id
-      }))
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false })
     }

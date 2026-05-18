@@ -133,6 +133,7 @@ exports.Prisma.DatasetScalarFieldEnum = {
   id: 'id',
   name: 'name',
   color: 'color',
+  type: 'type',
   data: 'data',
   userId: 'userId',
   createdAt: 'createdAt',

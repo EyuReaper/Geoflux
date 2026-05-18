@@ -190,7 +190,17 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
       const data = dataset.data as any[];
       let geojson: GeoJSON.FeatureCollection;
 
-      if (isAreaMode) {
+      if (dataset.type === 'grid') {
+        // Dataset is already a grid, data contains GeoJSON features
+        geojson = {
+          type: "FeatureCollection",
+          features: data.map((f: any) => ({
+            type: "Feature",
+            geometry: f.geometry,
+            properties: f.properties
+          }))
+        };
+      } else if (isAreaMode) {
         const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
 
         if (gridType === 'hex') {
@@ -300,11 +310,12 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
 
 app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
-    const { name, color, data } = req.body;
+    const { name, color, data, type } = req.body;
     const dataset = await prisma.dataset.create({
       data: {
         name,
         color: color || "#06b6d4",
+        type: type || "points",
         data: data as any,
         userId: req.user?.id,
       },
@@ -320,7 +331,7 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
 app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
     const sourceDatasetId = firstParam(req.params.id);
-    const { targetGridType, gridResolution, aggregationField } = req.body;
+    const { targetGridType, gridResolution, aggregationField, persist, name: customName } = req.body;
 
     if (!sourceDatasetId || !targetGridType || !gridResolution) {
       return res.status(400).json({ error: "Missing required parameters: sourceDatasetId, targetGridType, gridResolution" });
@@ -390,17 +401,33 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
       return res.status(400).json({ error: "Invalid gridType. Must be 'hex' or 'square'." });
     }
 
+    const gridFeatures = Array.from(grid.values()).map(cell => ({
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [cell.coords] },
+      properties: { 
+        value: cell.value, 
+        count: cell.count, 
+        avg: cell.value / cell.count 
+      }
+    }));
+
+    if (persist) {
+      const name = customName || `Aggregated: ${sourceDataset.name} (${targetGridType})`;
+      const newDataset = await prisma.dataset.create({
+        data: {
+          name,
+          color: "#f97316",
+          type: "grid",
+          data: gridFeatures as any,
+          userId: req.user?.id,
+        }
+      });
+      return res.status(201).json(newDataset);
+    }
+
     const aggregatedGeoJson: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: Array.from(grid.values()).map(cell => ({
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: [cell.coords] },
-        properties: { 
-          value: cell.value, 
-          count: cell.count, 
-          avg: cell.value / cell.count 
-        }
-      }))
+      features: gridFeatures as any
     };
 
     res.json(aggregatedGeoJson);

@@ -147,4 +147,55 @@ describe('GeoFlux Store', () => {
     toggleRightPanel()
     expect(useStore.getState().isRightPanelOpen).toBe(!initialRightPanel)
   })
+
+  it('should handle persistent spatial aggregation', async () => {
+    useStore.setState({
+      auth: {
+        token: 'test-token',
+        user: { id: 'user-1', email: 'test@example.com' },
+        isAuthenticated: true
+      },
+      spatialAggregationConfig: {
+        sourceDatasetId: 'source-1',
+        targetGridType: 'hex',
+        gridResolution: 4,
+        aggregationField: 'val',
+        isEnabled: true,
+        persist: true,
+        customName: 'Saved Hex Grid'
+      },
+      datasets: [{ id: 'source-1', name: 'Source', color: '#000', isVisible: true, data: [] }]
+    })
+
+    const mockSavedAggregation = {
+      id: 'agg-saved-id',
+      name: 'Saved Hex Grid',
+      color: '#f97316',
+      type: 'grid',
+      data: []
+    }
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockSavedAggregation
+    } as Response)
+
+    await useStore.getState().performSpatialAggregation()
+
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/spatial-aggregate'), expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        targetGridType: 'hex',
+        gridResolution: 4,
+        aggregationField: 'val',
+        persist: true,
+        name: 'Saved Hex Grid'
+      })
+    }))
+
+    const state = useStore.getState()
+    expect(state.datasets).toHaveLength(2)
+    expect(state.datasets.find(d => d.id === 'agg-saved-id')).toBeDefined()
+    expect(state.activeDatasetId).toBe('agg-saved-id')
+  })
 })

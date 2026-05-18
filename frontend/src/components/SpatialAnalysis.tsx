@@ -139,6 +139,38 @@ const SpatialAnalysis = () => {
             </p>
           </div>
 
+          {/* Persistence Toggle */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between px-1">
+              <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest">Save Result Permanently</label>
+              <button 
+                onClick={() => setSpatialAggregationConfig({ persist: !spatialAggregationConfig.persist })}
+                className={cn(
+                  "w-8 h-4 rounded-full relative transition-colors",
+                  spatialAggregationConfig.persist ? "bg-orange-500" : "bg-white/10"
+                )}
+              >
+                <div className={cn(
+                  "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                  spatialAggregationConfig.persist ? "left-4.5" : "left-0.5"
+                )} />
+              </button>
+            </div>
+
+            {spatialAggregationConfig.persist && (
+              <div className="space-y-2 animate-in slide-in-from-left-2">
+                <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Result Name</label>
+                <input 
+                  type="text"
+                  placeholder="Enter analysis name..."
+                  value={spatialAggregationConfig.customName || ''}
+                  onChange={(e) => setSpatialAggregationConfig({ customName: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500/50"
+                />
+              </div>
+            )}
+          </div>
+
           {/* Actions */}
           <div className="flex gap-2 pt-2">
             <button 
@@ -154,7 +186,7 @@ const SpatialAnalysis = () => {
               {isLoading ? (
                 <div className="w-3 h-3 border-2 border-black/20 border-t-black rounded-full animate-spin" />
               ) : <Play size={14} fill="currentColor" />}
-              Run Analysis
+              {spatialAggregationConfig.persist ? 'Run & Save' : 'Run Analysis'}
             </button>
             
             {aggregatedDatasetId && (

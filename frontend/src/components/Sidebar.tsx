@@ -69,7 +69,6 @@ const Sidebar = () => {
     removeDataset,
     toggleDatasetVisibility,
     setActiveDataset,
-    isLoading,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 

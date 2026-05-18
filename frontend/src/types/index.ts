@@ -43,6 +43,7 @@ export type Dataset = {
   id: string;
   name: string;
   color: string;
+  type?: 'points' | 'grid';
   isVisible: boolean;
   data: DataPoint[];
   // Metadata for stats when data is empty (MVT mode)
@@ -61,6 +62,8 @@ export type SpatialAggregationConfig = {
   gridResolution: number; // For hex: 1-8, for square: actual resolution value (float)
   aggregationField: string | null; // Field from metadata to aggregate by
   isEnabled: boolean;
+  persist?: boolean;
+  customName?: string;
 };
 
 export type FilterState = {

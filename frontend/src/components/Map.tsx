@@ -90,6 +90,7 @@ const Map = () => {
       newSourceIds.add(sourceId)
       const isLocalData = ds.data.length > 0
       const isAggregated = !!ds.aggregatedGeoJson
+      const isGridDataset = ds.type === 'grid'
       const sourceLayer = (isLocalData || isAggregated) ? undefined : 'geoflux-layer'
 
       if (isAggregated) {
@@ -124,7 +125,7 @@ const Map = () => {
         // For H3, we pass the gridResolution directly as the 'res' parameter,
         // which the backend will map to an appropriate H3 resolution.
         const resParam = mapStyle.gridType === 'hex' ? mapStyle.gridResolution : (1 / Math.pow(2, mapStyle.gridResolution - 2));
-        const tileUrl = activeModes.includes('area') || activeModes.includes('choropleth')
+        const tileUrl = (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth'))
           ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area&gridType=${mapStyle.gridType}&res=${resParam}`
           : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
         const existingSource = mapInstance.getSource(sourceId)
@@ -149,7 +150,7 @@ const Map = () => {
       }
 
       // 1. Heatmap Layer
-      if (activeModes.includes('heatmap')) {
+      if (activeModes.includes('heatmap') && !isGridDataset) {
         const layerId = `geoflux-heatmap-${ds.id}`
         newLayerIds.add(layerId)
         if (!mapInstance.getLayer(layerId)) {
@@ -193,7 +194,7 @@ const Map = () => {
       }
 
       // 2. 3D Extrusion / Area Layer
-      if (activeModes.includes('area') || activeModes.includes('choropleth')) {
+      if (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth')) {
         const layerId = `geoflux-area-${ds.id}`
         newLayerIds.add(layerId)
         
@@ -261,7 +262,7 @@ const Map = () => {
       }
 
       // 3. Markers Layer
-      if (activeModes.includes('markers')) {
+      if (activeModes.includes('markers') && !isGridDataset) {
         const layerId = `geoflux-markers-${ds.id}`
         const pulseLayerId = `${layerId}-pulse`
         newLayerIds.add(layerId)

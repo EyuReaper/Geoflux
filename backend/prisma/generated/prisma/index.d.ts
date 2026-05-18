@@ -2217,6 +2217,7 @@ export namespace Prisma {
     id: string | null
     name: string | null
     color: string | null
+    type: string | null
     userId: string | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -2226,6 +2227,7 @@ export namespace Prisma {
     id: string | null
     name: string | null
     color: string | null
+    type: string | null
     userId: string | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -2235,6 +2237,7 @@ export namespace Prisma {
     id: number
     name: number
     color: number
+    type: number
     data: number
     userId: number
     createdAt: number
@@ -2247,6 +2250,7 @@ export namespace Prisma {
     id?: true
     name?: true
     color?: true
+    type?: true
     userId?: true
     createdAt?: true
     updatedAt?: true
@@ -2256,6 +2260,7 @@ export namespace Prisma {
     id?: true
     name?: true
     color?: true
+    type?: true
     userId?: true
     createdAt?: true
     updatedAt?: true
@@ -2265,6 +2270,7 @@ export namespace Prisma {
     id?: true
     name?: true
     color?: true
+    type?: true
     data?: true
     userId?: true
     createdAt?: true
@@ -2348,6 +2354,7 @@ export namespace Prisma {
     id: string
     name: string
     color: string
+    type: string
     data: JsonValue
     userId: string | null
     createdAt: Date
@@ -2375,6 +2382,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     color?: boolean
+    type?: boolean
     data?: boolean
     userId?: boolean
     createdAt?: boolean
@@ -2386,6 +2394,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     color?: boolean
+    type?: boolean
     data?: boolean
     userId?: boolean
     createdAt?: boolean
@@ -2397,6 +2406,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     color?: boolean
+    type?: boolean
     data?: boolean
     userId?: boolean
     createdAt?: boolean
@@ -2408,13 +2418,14 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     color?: boolean
+    type?: boolean
     data?: boolean
     userId?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type DatasetOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "name" | "color" | "data" | "userId" | "createdAt" | "updatedAt", ExtArgs["result"]["dataset"]>
+  export type DatasetOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "name" | "color" | "type" | "data" | "userId" | "createdAt" | "updatedAt", ExtArgs["result"]["dataset"]>
   export type DatasetInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     user?: boolean | Dataset$userArgs<ExtArgs>
   }
@@ -2434,6 +2445,7 @@ export namespace Prisma {
       id: string
       name: string
       color: string
+      type: string
       data: Prisma.JsonValue
       userId: string | null
       createdAt: Date
@@ -2865,6 +2877,7 @@ export namespace Prisma {
     readonly id: FieldRef<"Dataset", 'String'>
     readonly name: FieldRef<"Dataset", 'String'>
     readonly color: FieldRef<"Dataset", 'String'>
+    readonly type: FieldRef<"Dataset", 'String'>
     readonly data: FieldRef<"Dataset", 'Json'>
     readonly userId: FieldRef<"Dataset", 'String'>
     readonly createdAt: FieldRef<"Dataset", 'DateTime'>
@@ -4422,6 +4435,7 @@ export namespace Prisma {
     id: 'id',
     name: 'name',
     color: 'color',
+    type: 'type',
     data: 'data',
     userId: 'userId',
     createdAt: 'createdAt',
@@ -4625,6 +4639,7 @@ export namespace Prisma {
     id?: StringFilter<"Dataset"> | string
     name?: StringFilter<"Dataset"> | string
     color?: StringFilter<"Dataset"> | string
+    type?: StringFilter<"Dataset"> | string
     data?: JsonFilter<"Dataset">
     userId?: StringNullableFilter<"Dataset"> | string | null
     createdAt?: DateTimeFilter<"Dataset"> | Date | string
@@ -4636,6 +4651,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     color?: SortOrder
+    type?: SortOrder
     data?: SortOrder
     userId?: SortOrderInput | SortOrder
     createdAt?: SortOrder
@@ -4650,6 +4666,7 @@ export namespace Prisma {
     NOT?: DatasetWhereInput | DatasetWhereInput[]
     name?: StringFilter<"Dataset"> | string
     color?: StringFilter<"Dataset"> | string
+    type?: StringFilter<"Dataset"> | string
     data?: JsonFilter<"Dataset">
     userId?: StringNullableFilter<"Dataset"> | string | null
     createdAt?: DateTimeFilter<"Dataset"> | Date | string
@@ -4661,6 +4678,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     color?: SortOrder
+    type?: SortOrder
     data?: SortOrder
     userId?: SortOrderInput | SortOrder
     createdAt?: SortOrder
@@ -4677,6 +4695,7 @@ export namespace Prisma {
     id?: StringWithAggregatesFilter<"Dataset"> | string
     name?: StringWithAggregatesFilter<"Dataset"> | string
     color?: StringWithAggregatesFilter<"Dataset"> | string
+    type?: StringWithAggregatesFilter<"Dataset"> | string
     data?: JsonWithAggregatesFilter<"Dataset">
     userId?: StringNullableWithAggregatesFilter<"Dataset"> | string | null
     createdAt?: DateTimeWithAggregatesFilter<"Dataset"> | Date | string
@@ -4823,6 +4842,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -4833,6 +4853,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     userId?: string | null
     createdAt?: Date | string
@@ -4843,6 +4864,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -4853,6 +4875,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     userId?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -4863,6 +4886,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     userId?: string | null
     createdAt?: Date | string
@@ -4873,6 +4897,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -4882,6 +4907,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     userId?: NullableStringFieldUpdateOperationsInput | string | null
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -5132,6 +5158,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     color?: SortOrder
+    type?: SortOrder
     data?: SortOrder
     userId?: SortOrder
     createdAt?: SortOrder
@@ -5142,6 +5169,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     color?: SortOrder
+    type?: SortOrder
     userId?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -5151,6 +5179,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     color?: SortOrder
+    type?: SortOrder
     userId?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -5507,6 +5536,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -5516,6 +5546,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -5582,6 +5613,7 @@ export namespace Prisma {
     id?: StringFilter<"Dataset"> | string
     name?: StringFilter<"Dataset"> | string
     color?: StringFilter<"Dataset"> | string
+    type?: StringFilter<"Dataset"> | string
     data?: JsonFilter<"Dataset">
     userId?: StringNullableFilter<"Dataset"> | string | null
     createdAt?: DateTimeFilter<"Dataset"> | Date | string
@@ -5733,6 +5765,7 @@ export namespace Prisma {
     id?: string
     name: string
     color: string
+    type?: string
     data: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -5751,6 +5784,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -5760,6 +5794,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -5769,6 +5804,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     color?: StringFieldUpdateOperationsInput | string
+    type?: StringFieldUpdateOperationsInput | string
     data?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string

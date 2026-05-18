@@ -21,18 +21,18 @@ describe('Sidebar Component', () => {
     fetchDatasets: vi.fn()
   }
 
-  it('renders "Datasets" header', () => {
+  it('renders "Data Source Control" header', () => {
     (useStore as unknown as Mock).mockReturnValue(defaultState)
 
     render(<Sidebar />)
-    expect(screen.getByText(/Datasets/i)).toBeInTheDocument()
+    expect(screen.getByText(/Data Source Control/i)).toBeInTheDocument()
   })
 
   it('shows upload prompt when no datasets are present', () => {
     (useStore as unknown as Mock).mockReturnValue(defaultState)
 
     render(<Sidebar />)
-    expect(screen.getByText(/Click to upload/i)).toBeInTheDocument()
+    expect(screen.getByText(/Ingest New Dataset/i)).toBeInTheDocument()
   })
 
   it('is hidden when isSidebarOpen is false', () => {
