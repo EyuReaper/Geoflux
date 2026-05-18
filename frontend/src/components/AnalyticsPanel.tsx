@@ -72,22 +72,25 @@ const AnalyticsPanel = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
-          <BarChart3 size={14} className="text-cyan-400" />
-          Analytics Dashboard
-        </h2>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
+            <BarChart3 size={12} className="text-cyan-500" />
+            Intelligence Hub
+          </h2>
+          <div className="text-[9px] text-white/20 font-medium uppercase tracking-widest">Real-time viewport analytics</div>
+        </div>
         <div className="flex gap-2">
           <button 
             onClick={exportCSV}
             title="Export CSV"
-            className="p-1.5 rounded-md bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+            className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
           >
             <FileSpreadsheet size={14} />
           </button>
           <button 
             onClick={exportJSON}
             title="Export JSON"
-            className="p-1.5 rounded-md bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+            className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
           >
             <FileJson size={14} />
           </button>

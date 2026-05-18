@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2, ToggleLeft, ToggleRight, FlaskConical, AlertCircle } from 'lucide-react'
 import { useStore } from '../store/useStore'
+import { cn } from '../lib/utils'
 
 const Transformations = () => {
   const { transformations, addTransformation, removeTransformation, toggleTransformation } = useStore()
@@ -20,15 +21,18 @@ const Transformations = () => {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-white/40 flex items-center gap-2">
-          <FlaskConical size={14} />
-          Transformations
-        </h2>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
+            <FlaskConical size={12} className="text-cyan-500" />
+            Logic Engine
+          </h2>
+          <div className="text-[9px] text-white/20 font-medium uppercase tracking-widest">Virtual Field Transformations</div>
+        </div>
         <button 
           onClick={() => setIsAdding(!isAdding)}
-          className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-all border border-cyan-500/20"
+          className="group p-2 rounded-xl bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black transition-all duration-300 border border-cyan-500/20 hover:border-cyan-500 shadow-lg shadow-cyan-500/0 hover:shadow-cyan-500/20"
         >
-          <Plus size={14} />
+          <Plus size={14} className={cn("transition-transform duration-300", isAdding && "rotate-45 text-red-400 group-hover:text-black")} />
         </button>
       </div>
 
