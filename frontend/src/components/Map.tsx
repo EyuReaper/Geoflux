@@ -122,12 +122,22 @@ const Map = () => {
           })
         }
       } else {
-        // For H3, we pass the gridResolution directly as the 'res' parameter,
-        // which the backend will map to an appropriate H3 resolution.
+        // Build MVT URL with server-side filters
         const resParam = mapStyle.gridType === 'hex' ? mapStyle.gridResolution : (1 / Math.pow(2, mapStyle.gridResolution - 2));
-        const tileUrl = (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth'))
-          ? `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?mode=area&gridType=${mapStyle.gridType}&res=${resParam}`
-          : `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf`
+        const params = new URLSearchParams({
+          min: filters.minValue.toString(),
+          max: filters.maxValue.toString(),
+          cats: filters.categories.join(','),
+          search: filters.searchQuery
+        });
+
+        if (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth')) {
+          params.append('mode', 'area');
+          params.append('gridType', mapStyle.gridType);
+          params.append('res', resParam.toString());
+        }
+
+        const tileUrl = `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?${params.toString()}`;
         const existingSource = mapInstance.getSource(sourceId)
 
         if (!existingSource) {

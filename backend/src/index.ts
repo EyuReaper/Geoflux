@@ -180,14 +180,30 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
     const xInt = parseInt(x);
     const yInt = parseInt(y);
 
-    const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}`;
+    const min = parseFloat(req.query.min as string) || 0;
+    const max = parseFloat(req.query.max as string) || Infinity;
+    const cats = (req.query.cats as string || '').split(',').filter(Boolean);
+    const search = (req.query.search as string || '').toLowerCase();
+
+    const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
     let tileIndex = tileIndexCache.get(cacheKey);
 
     if (!tileIndex) {
       const dataset = await prisma.dataset.findUnique({ where: { id } });
       if (!dataset) return res.status(404).send("Dataset not found");
 
-      const data = dataset.data as any[];
+      let data = dataset.data as any[];
+      
+      // Apply filters server-side
+      data = data.filter(d => {
+        const val = d.value || 0;
+        const matchesValue = val >= min && val <= max;
+        const matchesCategory = cats.length === 0 || (d.category && cats.includes(d.category));
+        const matchesSearch = !search || 
+          JSON.stringify(d.metadata || {}).toLowerCase().includes(search);
+        return matchesValue && matchesCategory && matchesSearch;
+      });
+
       let geojson: GeoJSON.FeatureCollection;
 
       if (dataset.type === 'grid') {
