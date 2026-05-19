@@ -327,14 +327,23 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
 });
 
 
-// --- SPATIAL AGGREGATION ROUTE (Protected) ---
-app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req: AuthRequest, res) => {
+// --- SPATIAL TOOL ROUTE (Protected) ---
+app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
     const sourceDatasetId = firstParam(req.params.id);
-    const { targetGridType, gridResolution, aggregationField, persist, name: customName } = req.body;
+    const { 
+      type, 
+      targetGridType, 
+      gridResolution, 
+      aggregationField, 
+      bufferRadius, 
+      clusterRadius, 
+      persist, 
+      customName 
+    } = req.body;
 
-    if (!sourceDatasetId || !targetGridType || !gridResolution) {
-      return res.status(400).json({ error: "Missing required parameters: sourceDatasetId, targetGridType, gridResolution" });
+    if (!sourceDatasetId || !type) {
+      return res.status(400).json({ error: "Missing required parameters: sourceDatasetId, type" });
     }
 
     const sourceDataset = await prisma.dataset.findUnique({ where: { id: sourceDatasetId } });
@@ -347,95 +356,112 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
       return res.status(200).json({ features: [] });
     }
 
-    const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
+    let resultGeoJson: GeoJSON.FeatureCollection;
 
-    if (targetGridType === 'hex') {
-      const h3Resolution = Math.min(10, Math.max(3, Math.round(gridResolution) + 2)); 
+    if (type === 'aggregation') {
+      const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
 
-      sourceData.forEach((d: any) => {
-        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-        const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
-        const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] };
-        
-        if (existing.count === 0) {
-          const [lat, lng] = h3.cellToLatLng(h3Index);
-          existing.lat = lat;
-          existing.lng = lng;
-          existing.coords = h3.cellToBoundary(h3Index, true);
-        }
-        
-        const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
-                           ? d.metadata[aggregationField]
-                           : (d.value || 0);
-        existing.value += pointValue;
-        existing.count += 1;
-        grid.set(h3Index, existing);
-      });
-    } else if (targetGridType === 'square') {
-      const resolution = parseFloat(gridResolution as string);
-      sourceData.forEach((d: any) => {
-        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-        const latBin = Math.floor(d.lat / resolution) * resolution;
-        const lngBin = Math.floor(d.lng / resolution) * resolution;
-        const key = `${latBin},${lngBin}`;
-        
-        const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] };
-        if (existing.count === 0) {
-          existing.coords = [
-            [lngBin, latBin],
-            [lngBin + resolution, latBin],
-            [lngBin + resolution, latBin + resolution],
-            [lngBin, latBin + resolution],
-            [lngBin, latBin]
-          ];
-        }
-        
-        const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
-                           ? d.metadata[aggregationField]
-                           : (d.value || 0);
-        existing.value += pointValue;
-        existing.count += 1;
-        grid.set(key, existing);
-      });
+      if (targetGridType === 'hex') {
+        const h3Resolution = Math.min(10, Math.max(3, Math.round(gridResolution) + 2)); 
+
+        sourceData.forEach((d: any) => {
+          if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+          const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
+          const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] };
+          
+          if (existing.count === 0) {
+            const [lat, lng] = h3.cellToLatLng(h3Index);
+            existing.lat = lat;
+            existing.lng = lng;
+            existing.coords = h3.cellToBoundary(h3Index, true);
+          }
+          
+          const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
+                             ? d.metadata[aggregationField]
+                             : (d.value || 0);
+          existing.value += pointValue;
+          existing.count += 1;
+          grid.set(h3Index, existing);
+        });
+      } else {
+        const resolution = parseFloat(gridResolution as string);
+        sourceData.forEach((d: any) => {
+          if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+          const latBin = Math.floor(d.lat / resolution) * resolution;
+          const lngBin = Math.floor(d.lng / resolution) * resolution;
+          const key = `${latBin},${lngBin}`;
+          
+          const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] };
+          if (existing.count === 0) {
+            existing.coords = [
+              [lngBin, latBin],
+              [lngBin + resolution, latBin],
+              [lngBin + resolution, latBin + resolution],
+              [lngBin, latBin + resolution],
+              [lngBin, latBin]
+            ];
+          }
+          
+          const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
+                             ? d.metadata[aggregationField]
+                             : (d.value || 0);
+          existing.value += pointValue;
+          existing.count += 1;
+          grid.set(key, existing);
+        });
+      }
+
+      resultGeoJson = {
+        type: "FeatureCollection",
+        features: Array.from(grid.values()).map(cell => ({
+          type: "Feature",
+          geometry: { type: "Polygon", coordinates: [cell.coords] },
+          properties: { 
+            value: cell.value, 
+            count: cell.count, 
+            avg: cell.value / cell.count 
+          }
+        })) as any
+      };
+    } else if (type === 'buffer') {
+      const points = sourceData.map(d => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value }));
+      const buffered = points.map(p => turf.buffer(p, bufferRadius || 5, { units: 'kilometers' }));
+      resultGeoJson = turf.featureCollection(buffered as any);
+    } else if (type === 'clustering') {
+      const points = turf.featureCollection(sourceData.map(d => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value })));
+      const clustered = turf.clustersDbscan(points, clusterRadius || 10, { units: 'kilometers', minPoints: 1 });
+      resultGeoJson = clustered;
     } else {
-      return res.status(400).json({ error: "Invalid gridType. Must be 'hex' or 'square'." });
+      return res.status(400).json({ error: "Invalid tool type" });
     }
 
-    const gridFeatures = Array.from(grid.values()).map(cell => ({
-      type: "Feature",
-      geometry: { type: "Polygon", coordinates: [cell.coords] },
-      properties: { 
-        value: cell.value, 
-        count: cell.count, 
-        avg: cell.value / cell.count 
-      }
-    }));
-
     if (persist) {
-      const name = customName || `Aggregated: ${sourceDataset.name} (${targetGridType})`;
+      const name = customName || `${type.toUpperCase()}: ${sourceDataset.name}`;
       const newDataset = await prisma.dataset.create({
         data: {
           name,
           color: "#f97316",
-          type: "grid",
-          data: gridFeatures as any,
+          type: type === 'aggregation' ? "grid" : "points",
+          data: resultGeoJson.features as any,
           userId: req.user?.id,
         }
       });
       return res.status(201).json(newDataset);
     }
 
-    const aggregatedGeoJson: GeoJSON.FeatureCollection = {
-      type: "FeatureCollection",
-      features: gridFeatures as any
-    };
-
-    res.json(aggregatedGeoJson);
+    res.json(resultGeoJson);
 
   } catch (error) {
-    console.error("Spatial aggregation error:", error);
-    res.status(500).json({ error: "Failed to perform spatial aggregation" });
+    console.error("Spatial tool error:", error);
+    res.status(500).json({ error: "Failed to perform spatial operation" });
   }
+});
+
+app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req: AuthRequest, res) => {
+  // Legacy support - redirect to spatial-tool
+  req.body.type = 'aggregation';
+  const sourceDatasetId = firstParam(req.params.id);
+  res.redirect(307, `/datasets/${sourceDatasetId}/spatial-tool`);
 });
 
 app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {

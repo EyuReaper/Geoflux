@@ -80,7 +80,7 @@ interface GeoFluxState {
   applyMapping: () => void
   updateGlobalData: () => void
 
-  setSpatialAggregationConfig: (config: Partial<SpatialAggregationConfig>) => void
+  setSpatialAggregationConfig: (config: Partial<SpatialToolConfig>) => void
   performSpatialAggregation: () => Promise<void>
   clearSpatialAggregation: () => void
 
@@ -636,22 +636,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
     set({ isLoading: true, error: null })
     try {
-      const response = await fetch(`${API_URL}/datasets/${spatialAggregationConfig.sourceDatasetId}/spatial-aggregate`, {
+      const response = await fetch(`${API_URL}/datasets/${spatialAggregationConfig.sourceDatasetId}/spatial-tool`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.token}`
         },
-        body: JSON.stringify({
-          targetGridType: spatialAggregationConfig.targetGridType,
-          gridResolution: spatialAggregationConfig.gridResolution,
-          aggregationField: spatialAggregationConfig.aggregationField,
-          persist: spatialAggregationConfig.persist,
-          name: spatialAggregationConfig.customName
-        })
+        body: JSON.stringify(spatialAggregationConfig)
       })
 
-      if (!response.ok) throw new Error('Failed to perform spatial aggregation')
+      if (!response.ok) throw new Error('Failed to perform spatial operation')
       
       const result = await response.json()
 
@@ -674,9 +668,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         const sourceDataset = get().datasets.find(d => d.id === spatialAggregationConfig.sourceDatasetId)
         const newDataset: Dataset = {
           id: `agg-${Date.now()}`,
-          name: `Aggregated: ${sourceDataset?.name || 'Dataset'}`,
+          name: `${spatialAggregationConfig.type.toUpperCase()}: ${sourceDataset?.name || 'Dataset'}`,
           color: '#f97316',
-          type: 'grid',
+          type: spatialAggregationConfig.type === 'aggregation' ? 'grid' : 'points',
           isVisible: true,
           data: [],
           aggregatedGeoJson: result
