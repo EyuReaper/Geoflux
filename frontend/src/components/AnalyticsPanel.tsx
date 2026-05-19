@@ -3,7 +3,22 @@ import { BarChart3, TrendingUp, Activity, PieChart, FileJson, FileSpreadsheet, C
 import { useStore } from '../store/useStore'
 
 const AnalyticsPanel = () => {
-  const { viewportFilteredData, isRightPanelOpen } = useStore()
+  const { viewportFilteredData, isRightPanelOpen, activeDatasetId, datasets } = useStore()
+
+  const activeDataset = useMemo(() => {
+    return datasets.find(d => d.id === activeDatasetId)
+  }, [datasets, activeDatasetId])
+
+  const analysisType = useMemo(() => {
+    if (!activeDataset) return null
+    if (activeDataset.id.startsWith('agg-') || activeDataset.type === 'grid') {
+      const name = activeDataset.name.toUpperCase()
+      if (name.includes('BUFFER')) return 'buffer'
+      if (name.includes('CLUSTER')) return 'clustering'
+      if (name.includes('AGGREGATION') || activeDataset.type === 'grid') return 'aggregation'
+    }
+    return null
+  }, [activeDataset])
 
   const stats = useMemo(() => {
     const points = viewportFilteredData
@@ -16,6 +31,10 @@ const AnalyticsPanel = () => {
     const histogram: Record<number, number> = {}
     const bucketSize = 10
 
+    // Tool-specific counters
+    const clusters = new Map<string, { count: number, totalValue: number }>()
+    let outlierCount = 0
+
     points.forEach(p => {
       const v = p.value || 0
       if (v < min) min = v
@@ -27,7 +46,26 @@ const AnalyticsPanel = () => {
 
       const bucket = Math.floor(v / bucketSize) * bucketSize
       histogram[bucket] = (histogram[bucket] || 0) + 1
+
+      // Advanced Clustering Stats
+      if (analysisType === 'clustering') {
+        const clusterId = String(p.metadata?.dbscan || p.metadata?.cluster)
+        if (clusterId === 'noise' || clusterId === 'undefined') {
+          outlierCount++
+        } else {
+          const existing = clusters.get(clusterId) || { count: 0, totalValue: 0 }
+          existing.count++
+          existing.totalValue += v
+          clusters.set(clusterId, existing)
+        }
+      }
     })
+
+    // Rank the top features
+    const topInsights = Array.from(clusters.entries())
+      .map(([id, data]) => ({ id, ...data, avg: data.totalValue / data.count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
 
     return {
       min: min === Infinity ? 0 : min,
@@ -36,9 +74,13 @@ const AnalyticsPanel = () => {
       count: points.length,
       total,
       categoryBreakdown: catMap,
-      histogram
+      histogram,
+      // Tool-specific stats
+      clusterCount: clusters.size,
+      outlierCount,
+      topInsights
     }
-  }, [viewportFilteredData])
+  }, [viewportFilteredData, analysisType])
 
   const exportCSV = () => {
     if (viewportFilteredData.length === 0) return
@@ -99,19 +141,77 @@ const AnalyticsPanel = () => {
 
       {stats ? (
         <div className="space-y-6">
+          {/* Spatial Analysis Header */}
+          {analysisType && (
+            <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 animate-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-orange-500" />
+                <div className="text-[10px] font-black text-orange-400 uppercase tracking-widest">
+                  Analyzing {analysisType} Result
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-1">
               <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Visibility</div>
               <div className="text-2xl font-black text-white">{stats.count.toLocaleString()}</div>
-              <div className="text-[9px] text-white/30">Active features</div>
+              <div className="text-[9px] text-white/30">{analysisType === 'aggregation' ? 'Total Cells' : 'Active features'}</div>
             </div>
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-1">
-              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Mean Value</div>
-              <div className="text-2xl font-black text-cyan-400">{stats.avg.toFixed(1)}</div>
-              <div className="text-[9px] text-white/30">Intensity score</div>
-            </div>
+            {analysisType === 'clustering' ? (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-1">
+                <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Clusters</div>
+                <div className="text-2xl font-black text-orange-400">{stats.clusterCount}</div>
+                <div className="text-[9px] text-white/30">{stats.outlierCount} noise points</div>
+              </div>
+            ) : (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-1">
+                <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Mean Value</div>
+                <div className="text-2xl font-black text-cyan-400">{stats.avg.toFixed(1)}</div>
+                <div className="text-[9px] text-white/30">Intensity score</div>
+              </div>
+            )}
           </div>
+
+          {/* Spatial Discoveries (Rankings) */}
+          {(analysisType === 'clustering' || analysisType === 'aggregation') && stats.topInsights.length > 0 && (
+            <div className="space-y-4 animate-in slide-in-from-right-2">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 px-1">
+                {analysisType === 'clustering' ? 'Top Clusters' : 'Top Hotspots'}
+              </h3>
+              <div className="space-y-2">
+                {stats.topInsights.map((insight, i) => (
+                  <div key={insight.id} className="p-3 rounded-xl bg-orange-500/5 border border-orange-500/10 flex items-center justify-between group hover:bg-orange-500/10 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-orange-500/20 flex items-center justify-center text-[10px] font-black text-orange-400">
+                        #{i + 1}
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-bold text-white uppercase tracking-tight">
+                          {analysisType === 'clustering' ? `Cluster ID: ${insight.id}` : `Grid Cell ${i+1}`}
+                        </div>
+                        <div className="text-[9px] text-white/40 font-mono">
+                          {insight.count} {analysisType === 'clustering' ? 'Significant points' : 'Observations'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-black text-orange-400">
+                        {analysisType === 'clustering' 
+                          ? `${(insight.count / stats.count * 100).toFixed(1)}%` 
+                          : insight.totalValue.toFixed(1)}
+                      </div>
+                      <div className="text-[8px] text-white/20 uppercase font-bold">
+                        {analysisType === 'clustering' ? 'Concentration' : 'Intensity'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Value Distribution Histogram */}
           <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
