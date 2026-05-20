@@ -91,6 +91,8 @@ interface GeoFluxState {
   // Inspector Actions
   setSelectedEntity: (entity: InspectorEntity | null) => void
   closeInspector: () => void
+  getShareableUrl: () => string
+  applySnapshot: (encoded: string) => void
   reset: () => void
 }
 
@@ -952,5 +954,35 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
   closeInspector: () => {
     set({ isInspectorOpen: false, selectedEntity: null })
+  },
+
+  getShareableUrl: () => {
+    const state = get()
+    const snapshot = {
+      ms: state.mapState,
+      st: state.mapStyleType,
+      am: state.activeModes,
+      ad: state.activeDatasetId,
+      fi: state.filters,
+      tl: state.timeline.currentTime
+    }
+    const encoded = btoa(JSON.stringify(snapshot))
+    const url = new URL(window.location.href)
+    url.searchParams.set('s', encoded)
+    return url.toString()
+  },
+
+  applySnapshot: (encoded: string) => {
+    try {
+      const snapshot = JSON.parse(atob(encoded))
+      if (snapshot.ms) set({ mapState: { ...get().mapState, ...snapshot.ms } })
+      if (snapshot.st) set({ mapStyleType: snapshot.st })
+      if (snapshot.am) set({ activeModes: snapshot.am })
+      if (snapshot.ad) get().setActiveDataset(snapshot.ad)
+      if (snapshot.fi) set({ filters: { ...get().filters, ...snapshot.fi } })
+      if (snapshot.tl) set({ timeline: { ...get().timeline, currentTime: snapshot.tl } })
+    } catch (e) {
+      console.error('Failed to apply snapshot', e)
+    }
   }
 }))

@@ -13,31 +13,9 @@ const Navbar = () => {
   }
 
   const handleShare = async () => {
-    if (!auth.isAuthenticated) {
-      alert('Please login to share workspaces')
-      setShowAuth(true)
-      return
-    }
-
-    if (workspaces.length === 0) {
-      alert('Please save your workspace first')
-      handleSave()
-      return
-    }
-
-    // Share the most recently updated workspace for simplicity
-    const latest = workspaces[0]
-    if (!latest.isPublic) {
-      if (confirm(`Make "${latest.name}" public to share?`)) {
-        await toggleWorkspaceSharing(latest.id, true)
-      } else {
-        return
-      }
-    }
-
-    const shareUrl = `${window.location.origin}${window.location.pathname}?workspace=${latest.id}`
+    const shareUrl = useStore.getState().getShareableUrl()
     await navigator.clipboard.writeText(shareUrl)
-    alert('Shareable link copied to clipboard!')
+    alert('Instant view snapshot copied to clipboard!')
   }
 
   return (

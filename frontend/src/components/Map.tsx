@@ -52,8 +52,17 @@ const Map = () => {
   const { 
     mapState, setMapState, activeModes, mapStyle, 
     mapStyleType, setSelectedEntity, datasets, filters, 
-    timeline, setViewportFilteredData
+    timeline, setViewportFilteredData, applySnapshot
   } = useStore()
+
+  // Apply initial snapshot if present in URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const snapshot = urlParams.get('s')
+    if (snapshot) {
+      applySnapshot(snapshot)
+    }
+  }, [applySnapshot])
 
   // Track added layers and sources to manage them surgically
   const activeResources = useRef<{
