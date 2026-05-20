@@ -1,13 +1,34 @@
 import { useMemo } from 'react'
-import { BarChart3, TrendingUp, Activity, PieChart, FileJson, FileSpreadsheet, Camera } from 'lucide-react'
+import { BarChart3, TrendingUp, Activity, PieChart, FileJson, FileSpreadsheet, Camera, GitCompare } from 'lucide-react'
 import { useStore } from '../store/useStore'
 
 const AnalyticsPanel = () => {
-  const { viewportFilteredData, isRightPanelOpen, activeDatasetId, datasets } = useStore()
+  const { viewportFilteredData, isRightPanelOpen, activeDatasetId, datasets, comparisonDatasetIds } = useStore()
 
   const activeDataset = useMemo(() => {
     return datasets.find(d => d.id === activeDatasetId)
   }, [datasets, activeDatasetId])
+
+  const comparisonStats = useMemo(() => {
+    if (comparisonDatasetIds.length < 2) return null
+    
+    return comparisonDatasetIds.map(id => {
+      const dataset = datasets.find(d => d.id === id)
+      if (!dataset) return null
+      
+      const dsPoints = viewportFilteredData.filter(p => p.datasetId === id)
+      const total = dsPoints.reduce((acc, p) => acc + (p.value || 0), 0)
+      
+      return {
+        id,
+        name: dataset.name,
+        color: dataset.color,
+        count: dsPoints.length,
+        avg: dsPoints.length > 0 ? total / dsPoints.length : 0,
+        total
+      }
+    }).filter((s): s is NonNullable<typeof s> => s !== null)
+  }, [comparisonDatasetIds, datasets, viewportFilteredData])
 
   const analysisType = useMemo(() => {
     if (!activeDataset) return null
@@ -167,6 +188,76 @@ const AnalyticsPanel = () => {
           </button>
         </div>
       </div>
+
+      {comparisonStats && (
+        <div className="space-y-4 animate-in slide-in-from-bottom-4">
+          <div className="flex items-center gap-2 px-1">
+            <GitCompare size={14} className="text-orange-400" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">
+              Comparison Engine
+            </h3>
+          </div>
+          
+          <div className="space-y-3">
+            {comparisonStats.map((cs) => (
+              <div key={cs.id} className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3 relative overflow-hidden group">
+                <div 
+                  className="absolute left-0 top-0 bottom-0 w-1" 
+                  style={{ backgroundColor: cs.color }}
+                />
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="text-[11px] font-bold text-white uppercase truncate max-w-[150px]">
+                      {cs.name}
+                    </div>
+                    <div className="text-[9px] text-white/30 font-mono">
+                      {cs.count.toLocaleString()} Features in View
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-black text-white">
+                      {cs.avg.toFixed(1)}
+                    </div>
+                    <div className="text-[8px] text-white/20 uppercase font-bold">
+                      Mean Intensity
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Visual Bar Comparison */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[8px] uppercase font-bold text-white/20">
+                    <span>Relative Concentration</span>
+                    <span>{Math.round((cs.count / Math.max(...comparisonStats.map(s => s.count))) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full transition-all duration-1000"
+                      style={{ 
+                        width: `${(cs.count / Math.max(...comparisonStats.map(s => s.count))) * 100}%`,
+                        backgroundColor: cs.color 
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Differential Insight */}
+          <div className="p-4 rounded-2xl bg-orange-500/5 border border-orange-500/10">
+            <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <Activity size={12} /> Key Delta
+            </div>
+            <div className="text-[11px] text-white/70 leading-relaxed italic">
+              {comparisonStats[0].count > comparisonStats[1].count 
+                ? `${comparisonStats[0].name} has a ${(comparisonStats[0].count / comparisonStats[1].count).toFixed(1)}x higher density than ${comparisonStats[1].name} in this viewport.`
+                : `${comparisonStats[1].name} has a ${(comparisonStats[1].count / comparisonStats[0].count).toFixed(1)}x higher density than ${comparisonStats[0].name} in this viewport.`
+              }
+            </div>
+          </div>
+        </div>
+      )}
 
       {stats ? (
         <div className="space-y-6">

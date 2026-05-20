@@ -41,6 +41,9 @@ interface GeoFluxState {
   spatialAggregationConfig: SpatialAggregationConfig
   aggregatedDatasetId: string | null
 
+  // Comparison
+  comparisonDatasetIds: string[]
+
   // Selection
   selectedEntity: InspectorEntity | null
   // Actions
@@ -54,6 +57,7 @@ interface GeoFluxState {
   toggleDatasetVisibility: (id: string) => void
   setActiveDataset: (id: string | null) => void
   setViewportFilteredData: (data: DataPoint[]) => void
+  toggleComparisonDataset: (id: string) => void
 
   addTransformation: (name: string, expression: string) => void
   removeTransformation: (id: string) => void
@@ -165,6 +169,7 @@ const initialState = {
     isEnabled: false,
   },
   aggregatedDatasetId: null,
+  comparisonDatasetIds: [],
 }
 
 export const API_URL = 'http://localhost:4000'
@@ -297,6 +302,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
 
   setViewportFilteredData: (viewportFilteredData) => {
     set({ viewportFilteredData })
+  },
+
+  toggleComparisonDataset: (id) => {
+    set((state) => {
+      const isComparing = state.comparisonDatasetIds.includes(id)
+      const comparisonDatasetIds = isComparing
+        ? state.comparisonDatasetIds.filter(cid => cid !== id)
+        : [...state.comparisonDatasetIds, id]
+      return { comparisonDatasetIds }
+    })
   },
 
   fetchDatasets: async () => {

@@ -12,6 +12,7 @@ import {
   EyeOff,
   Plus,
   Layers,
+  GitCompare,
 } from "lucide-react";
 import Papa from "papaparse";
 import { useStore } from "../store/useStore";
@@ -69,6 +70,8 @@ const Sidebar = () => {
     removeDataset,
     toggleDatasetVisibility,
     setActiveDataset,
+    comparisonDatasetIds,
+    toggleComparisonDataset,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +256,21 @@ const Sidebar = () => {
                     </div>
 
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleComparisonDataset(ds.id);
+                        }}
+                        className={cn(
+                          "p-2 rounded-xl transition-all",
+                          comparisonDatasetIds.includes(ds.id)
+                            ? "bg-orange-500 text-black shadow-lg shadow-orange-500/20"
+                            : "bg-white/5 text-white/20 hover:text-white",
+                        )}
+                        title="Compare Dataset"
+                      >
+                        <GitCompare size={14} />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
