@@ -35,6 +35,22 @@ const AnalyticsPanel = () => {
     const clusters = new Map<string, { count: number, totalValue: number }>()
     let outlierCount = 0
 
+    const latProfile: Record<number, number> = {}
+    const lngProfile: Record<number, number> = {}
+    const profileBuckets = 8
+
+    // Calculate bounds for profile
+    let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180
+    points.forEach(p => {
+      if (p.lat < minLat) minLat = p.lat
+      if (p.lat > maxLat) maxLat = p.lat
+      if (p.lng < minLng) minLng = p.lng
+      if (p.lng > maxLng) maxLng = p.lng
+    })
+
+    const latRange = maxLat - minLat
+    const lngRange = maxLng - minLng
+
     points.forEach(p => {
       const v = p.value || 0
       if (v < min) min = v
@@ -46,6 +62,16 @@ const AnalyticsPanel = () => {
 
       const bucket = Math.floor(v / bucketSize) * bucketSize
       histogram[bucket] = (histogram[bucket] || 0) + 1
+
+      // Spatial Profiling
+      if (latRange > 0) {
+        const latIdx = Math.min(profileBuckets - 1, Math.floor(((p.lat - minLat) / latRange) * profileBuckets))
+        latProfile[latIdx] = (latProfile[latIdx] || 0) + 1
+      }
+      if (lngRange > 0) {
+        const lngIdx = Math.min(profileBuckets - 1, Math.floor(((p.lng - minLng) / lngRange) * profileBuckets))
+        lngProfile[lngIdx] = (lngProfile[lngIdx] || 0) + 1
+      }
 
       // Advanced Clustering Stats
       if (analysisType === 'clustering') {
@@ -75,6 +101,9 @@ const AnalyticsPanel = () => {
       total,
       categoryBreakdown: catMap,
       histogram,
+      latProfile,
+      lngProfile,
+      profileBuckets,
       // Tool-specific stats
       clusterCount: clusters.size,
       outlierCount,
@@ -243,6 +272,47 @@ const AnalyticsPanel = () => {
               <span>0</span>
               <span>50</span>
               <span>100</span>
+            </div>
+          </div>
+
+          {/* Spatial Profiling (Lat/Long Insights) */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+            <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-tight">
+              <TrendingUp size={12} className="text-orange-400" /> Spatial Profiling
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="text-[8px] font-bold text-white/20 uppercase tracking-widest text-center">Latitudinal Profile</div>
+                <div className="h-16 flex items-end gap-0.5">
+                  {Array.from({ length: stats.profileBuckets }).map((_, i) => {
+                    const count = stats.latProfile[i] || 0
+                    const height = Math.max(4, (count / stats.count) * 100)
+                    return (
+                      <div 
+                        key={i} 
+                        className="flex-1 bg-orange-500/20 rounded-t-sm hover:bg-orange-500 transition-all"
+                        style={{ height: `${height}%` }}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-[8px] font-bold text-white/20 uppercase tracking-widest text-center">Longitudinal Profile</div>
+                <div className="h-16 flex items-end gap-0.5">
+                  {Array.from({ length: stats.profileBuckets }).map((_, i) => {
+                    const count = stats.lngProfile[i] || 0
+                    const height = Math.max(4, (count / stats.count) * 100)
+                    return (
+                      <div 
+                        key={i} 
+                        className="flex-1 bg-orange-500/20 rounded-t-sm hover:bg-orange-500 transition-all"
+                        style={{ height: `${height}%` }}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
