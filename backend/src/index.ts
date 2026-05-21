@@ -430,6 +430,7 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
       aggregationField, 
       bufferRadius, 
       clusterRadius, 
+      hullMaxEdge,
       persist, 
       customName 
     } = req.body;
@@ -449,6 +450,10 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
     }
 
     let resultGeoJson: GeoJSON.FeatureCollection;
+
+    const pointFeatures = sourceData
+      .filter((d: any) => typeof d.lat === "number" && typeof d.lng === "number")
+      .map((d: any) => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value }));
 
     if (type === 'aggregation') {
       const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
@@ -516,16 +521,38 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
         })) as any
       };
     } else if (type === 'buffer') {
-      const points = sourceData.map(d => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value }));
+      const points = pointFeatures;
       const buffered = points.map(p => turf.buffer(p, bufferRadius || 5, { units: 'kilometers' }));
       resultGeoJson = turf.featureCollection(buffered as any);
     } else if (type === 'clustering') {
-      const points = turf.featureCollection(sourceData.map(d => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value })));
+      const points = turf.featureCollection(pointFeatures);
       const clustered = turf.clustersDbscan(points, clusterRadius || 10, { units: 'kilometers', minPoints: 1 });
       resultGeoJson = clustered;
+    } else if (type === "convex_hull") {
+      const points = turf.featureCollection(pointFeatures);
+      const hull = turf.convex(points);
+      if (!hull) return res.status(422).json({ error: "Convex hull could not be generated (need at least 3 non-collinear points)" });
+      resultGeoJson = turf.featureCollection([hull]);
+    } else if (type === "concave_hull") {
+      const points = turf.featureCollection(pointFeatures);
+      const maxEdge = Number.isFinite(Number(hullMaxEdge)) ? Number(hullMaxEdge) : 10;
+      const hull = turf.concave(points, { maxEdge, units: "kilometers" });
+      if (!hull) return res.status(422).json({ error: "Concave hull could not be generated (try increasing max edge)" });
+      resultGeoJson = turf.featureCollection([hull]);
+    } else if (type === "voronoi") {
+      const points = turf.featureCollection(pointFeatures);
+      const bbox = turf.bbox(points);
+      const paddingX = Math.max((bbox[2] - bbox[0]) * 0.1, 0.1);
+      const paddingY = Math.max((bbox[3] - bbox[1]) * 0.1, 0.1);
+      const paddedBBox: [number, number, number, number] = [bbox[0] - paddingX, bbox[1] - paddingY, bbox[2] + paddingX, bbox[3] + paddingY];
+      const voronoi = turf.voronoi(points, { bbox: paddedBBox });
+      if (!voronoi) return res.status(422).json({ error: "Voronoi tessellation failed" });
+      resultGeoJson = voronoi as GeoJSON.FeatureCollection;
     } else {
       return res.status(400).json({ error: "Invalid tool type" });
     }
+
+    const isAreaResult = ["aggregation", "convex_hull", "concave_hull", "voronoi", "buffer"].includes(type);
 
     if (persist) {
       const name = customName || `${type.toUpperCase()}: ${sourceDataset.name}`;
@@ -533,7 +560,7 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
         data: {
           name,
           color: "#f97316",
-          type: type === 'aggregation' ? "grid" : "points",
+          type: isAreaResult ? "grid" : "points",
           data: resultGeoJson.features as any,
           userId: req.user?.id,
         }

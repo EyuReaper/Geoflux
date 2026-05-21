@@ -56,19 +56,21 @@ export type Dataset = {
   aggregatedGeoJson?: GeoJSON.FeatureCollection; // For displaying spatial aggregations
 };
 
-export type SpatialToolType = 'aggregation' | 'buffer' | 'clustering';
+export type SpatialToolType = 'aggregation' | 'buffer' | 'clustering' | 'convex_hull' | 'concave_hull' | 'voronoi';
 
 export type SpatialToolConfig = {
-  type: SpatialToolType;
+  type?: SpatialToolType;
   sourceDatasetId: string | null;
   // Aggregation specific
   targetGridType: 'square' | 'hex';
   gridResolution: number;
   aggregationField: string | null;
   // Buffer specific
-  bufferRadius: number; // in km
+  bufferRadius?: number; // in km
   // Clustering specific
-  clusterRadius: number; // in km
+  clusterRadius?: number; // in km
+  // Concave hull specific
+  hullMaxEdge?: number; // in km
   
   isEnabled: boolean;
   persist?: boolean;

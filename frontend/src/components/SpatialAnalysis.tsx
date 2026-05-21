@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Hexagon, Square, Play, Trash2, Info, ChevronDown, CircleDot, Component, Layers } from 'lucide-react'
+import { Hexagon, Square, Play, Trash2, ChevronDown, CircleDot, Component, Layers, Pentagon, Sparkles } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { SpatialToolType } from '../types'
@@ -44,6 +44,9 @@ const SpatialAnalysis = () => {
     { id: 'aggregation', label: 'Grid', icon: Layers },
     { id: 'buffer', label: 'Buffer', icon: CircleDot },
     { id: 'clustering', label: 'Cluster', icon: Component },
+    { id: 'convex_hull', label: 'Convex', icon: Pentagon },
+    { id: 'concave_hull', label: 'Concave', icon: Hexagon },
+    { id: 'voronoi', label: 'Voronoi', icon: Sparkles },
   ]
 
   return (
@@ -141,14 +144,22 @@ const SpatialAnalysis = () => {
             </div>
           )}
 
-          {(spatialAggregationConfig.type === 'buffer' || spatialAggregationConfig.type === 'clustering') && (
+          {(spatialAggregationConfig.type === 'buffer' || spatialAggregationConfig.type === 'clustering' || spatialAggregationConfig.type === 'concave_hull') && (
             <div className="space-y-2 animate-in slide-in-from-left-2">
               <div className="flex justify-between items-center px-1">
                 <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest">
-                  {spatialAggregationConfig.type === 'buffer' ? 'Buffer Radius' : 'Cluster Radius'} (KM)
+                  {spatialAggregationConfig.type === 'buffer'
+                    ? 'Buffer Radius'
+                    : spatialAggregationConfig.type === 'clustering'
+                      ? 'Cluster Radius'
+                      : 'Hull Max Edge'} (KM)
                 </label>
                 <span className="text-xs font-mono text-orange-400">
-                  {spatialAggregationConfig.type === 'buffer' ? spatialAggregationConfig.bufferRadius : spatialAggregationConfig.clusterRadius}
+                  {spatialAggregationConfig.type === 'buffer'
+                    ? spatialAggregationConfig.bufferRadius
+                    : spatialAggregationConfig.type === 'clustering'
+                      ? spatialAggregationConfig.clusterRadius
+                      : (spatialAggregationConfig.hullMaxEdge || 10)}
                 </span>
               </div>
               <input 
@@ -156,9 +167,17 @@ const SpatialAnalysis = () => {
                 min="0.1"
                 max="100"
                 step="0.5"
-                value={spatialAggregationConfig.type === 'buffer' ? spatialAggregationConfig.bufferRadius : spatialAggregationConfig.clusterRadius}
+                value={spatialAggregationConfig.type === 'buffer'
+                  ? spatialAggregationConfig.bufferRadius
+                  : spatialAggregationConfig.type === 'clustering'
+                    ? spatialAggregationConfig.clusterRadius
+                    : (spatialAggregationConfig.hullMaxEdge || 10)}
                 onChange={(e) => setSpatialAggregationConfig({ 
-                  [spatialAggregationConfig.type === 'buffer' ? 'bufferRadius' : 'clusterRadius']: parseFloat(e.target.value) 
+                  [spatialAggregationConfig.type === 'buffer'
+                    ? 'bufferRadius'
+                    : spatialAggregationConfig.type === 'clustering'
+                      ? 'clusterRadius'
+                      : 'hullMaxEdge']: parseFloat(e.target.value) 
                 })}
                 className="w-full accent-orange-500"
               />

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { io, type Socket } from 'socket.io-client'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialAggregationConfig } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialToolConfig } from '../types/index'
 
 interface GeoFluxState {
   // Auth
@@ -38,7 +38,7 @@ interface GeoFluxState {
   timeline: TimelineState
 
   // Spatial Aggregation
-  spatialAggregationConfig: SpatialAggregationConfig
+  spatialAggregationConfig: SpatialToolConfig
   aggregatedDatasetId: string | null
 
   // Comparison
@@ -164,11 +164,17 @@ const initialState = {
     direction: 1 as const,
   },
   spatialAggregationConfig: {
+    type: 'aggregation' as const,
     sourceDatasetId: null,
     targetGridType: 'hex' as const,
     gridResolution: 4,
     aggregationField: null,
+    bufferRadius: 5,
+    clusterRadius: 10,
+    hullMaxEdge: 10,
     isEnabled: false,
+    persist: false,
+    customName: '',
   },
   aggregatedDatasetId: null,
   comparisonDatasetIds: [],
@@ -650,16 +656,24 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   performSpatialAggregation: async () => {
     const { spatialAggregationConfig, auth } = get()
     if (!spatialAggregationConfig.sourceDatasetId || !auth.token) return
+    const toolType = spatialAggregationConfig.type || 'aggregation'
 
     set({ isLoading: true, error: null })
     try {
+      const requestPayload = {
+        ...spatialAggregationConfig,
+        type: toolType,
+        bufferRadius: spatialAggregationConfig.bufferRadius ?? 5,
+        clusterRadius: spatialAggregationConfig.clusterRadius ?? 10,
+        hullMaxEdge: spatialAggregationConfig.hullMaxEdge ?? 10,
+      }
       const response = await fetch(`${API_URL}/datasets/${spatialAggregationConfig.sourceDatasetId}/spatial-tool`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.token}`
         },
-        body: JSON.stringify(spatialAggregationConfig)
+        body: JSON.stringify(requestPayload)
       })
 
       if (!response.ok) throw new Error('Failed to perform spatial operation')
@@ -685,9 +699,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         const sourceDataset = get().datasets.find(d => d.id === spatialAggregationConfig.sourceDatasetId)
         const newDataset: Dataset = {
           id: `agg-${Date.now()}`,
-          name: `${spatialAggregationConfig.type.toUpperCase()}: ${sourceDataset?.name || 'Dataset'}`,
+          name: `${toolType.toUpperCase()}: ${sourceDataset?.name || 'Dataset'}`,
           color: '#f97316',
-          type: spatialAggregationConfig.type === 'aggregation' ? 'grid' : 'points',
+          type: ['aggregation', 'convex_hull', 'concave_hull', 'voronoi', 'buffer'].includes(toolType) ? 'grid' : 'points',
           isVisible: true,
           data: [],
           aggregatedGeoJson: result
