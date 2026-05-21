@@ -13,6 +13,7 @@ import type { AuthRequest } from "./middleware/auth.js";
 import geojsonvt from "geojson-vt";
 import vtpbf from "vt-pbf";
 import * as h3 from "h3-js";
+import * as turf from "@turf/turf";
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require(`${process.cwd()}/prisma/generated/prisma`);
@@ -34,8 +35,53 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// Tile Cache
-const tileIndexCache = new Map<string, any>();
+type TileIndexRecord = {
+  tileIndex: ReturnType<typeof geojsonvt>;
+  createdAt: number;
+  lastAccessAt: number;
+  datasetId: string;
+};
+
+const TILE_CACHE_TTL_MS = 5 * 60 * 1000;
+const TILE_CACHE_MAX_ENTRIES = 128;
+const TILE_ZOOM_MIN = 0;
+const TILE_ZOOM_MAX = 22;
+
+const tileIndexCache = new Map<string, TileIndexRecord>();
+const tileBuildInFlight = new Map<string, Promise<ReturnType<typeof geojsonvt>>>();
+
+const toFiniteNumber = (value: unknown, fallback: number) => {
+  const n = typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const pruneTileCache = () => {
+  const now = Date.now();
+  for (const [key, record] of tileIndexCache.entries()) {
+    if ((now - record.createdAt) > TILE_CACHE_TTL_MS) {
+      tileIndexCache.delete(key);
+    }
+  }
+
+  if (tileIndexCache.size <= TILE_CACHE_MAX_ENTRIES) return;
+
+  const entriesByAccessAsc = Array.from(tileIndexCache.entries())
+    .sort((a, b) => a[1].lastAccessAt - b[1].lastAccessAt);
+  const overflow = tileIndexCache.size - TILE_CACHE_MAX_ENTRIES;
+
+  for (let i = 0; i < overflow; i += 1) {
+    const victim = entriesByAccessAsc[i];
+    if (victim) tileIndexCache.delete(victim[0]);
+  }
+};
+
+const evictDatasetTiles = (datasetId: string) => {
+  for (const [key, record] of tileIndexCache.entries()) {
+    if (record.datasetId === datasetId) tileIndexCache.delete(key);
+  }
+};
 
 const firstParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
 
@@ -169,155 +215,185 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
 // MVT Tile Route
 app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
   try {
-    const id = firstParam(req.params.id);
-    const z = firstParam(req.params.z);
-    const x = firstParam(req.params.x);
-    const y = firstParam(req.params.y);
-    const isAreaMode = req.query.mode === 'area';
-    const gridType = req.query.gridType || 'square';
-    const gridRes = parseFloat(req.query.res as string) || 0.05;
-    const zInt = parseInt(z);
-    const xInt = parseInt(x);
-    const yInt = parseInt(y);
+    pruneTileCache();
 
-    const min = parseFloat(req.query.min as string) || 0;
-    const max = parseFloat(req.query.max as string) || Infinity;
+    const id = firstParam(req.params.id);
+    const z = Number.parseInt(firstParam(req.params.z), 10);
+    const x = Number.parseInt(firstParam(req.params.x), 10);
+    const y = Number.parseInt(firstParam(req.params.y), 10);
+
+    if (![z, x, y].every(Number.isInteger)) {
+      return res.status(400).json({ error: "Invalid tile coordinates" });
+    }
+
+    if (z < TILE_ZOOM_MIN || z > TILE_ZOOM_MAX || x < 0 || y < 0 || x >= (2 ** z) || y >= (2 ** z)) {
+      return res.status(400).json({ error: "Tile coordinates out of range" });
+    }
+
+    const isAreaMode = req.query.mode === 'area';
+    const gridType = req.query.gridType === "hex" ? "hex" : "square";
+    const gridRes = clamp(toFiniteNumber(req.query.res, 0.05), 0.001, 5);
+    const min = toFiniteNumber(req.query.min, 0);
+    const maxRaw = toFiniteNumber(req.query.max, Number.POSITIVE_INFINITY);
+    const max = maxRaw >= min ? maxRaw : min;
     const cats = (req.query.cats as string || '').split(',').filter(Boolean);
     const search = (req.query.search as string || '').toLowerCase();
 
     const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
-    let tileIndex = tileIndexCache.get(cacheKey);
+    const cached = tileIndexCache.get(cacheKey);
+    let tileIndex = cached ? cached.tileIndex : undefined;
 
     if (!tileIndex) {
-      const dataset = await prisma.dataset.findUnique({ where: { id } });
-      if (!dataset) return res.status(404).send("Dataset not found");
+      let buildPromise = tileBuildInFlight.get(cacheKey);
+      if (!buildPromise) {
+        buildPromise = (async () => {
+          const dataset = await prisma.dataset.findUnique({ where: { id } });
+          if (!dataset) throw Object.assign(new Error("Dataset not found"), { statusCode: 404 });
 
-      let data = dataset.data as any[];
-      
-      // Apply filters server-side
-      data = data.filter(d => {
-        const val = d.value || 0;
-        const matchesValue = val >= min && val <= max;
-        const matchesCategory = cats.length === 0 || (d.category && cats.includes(d.category));
-        const matchesSearch = !search || 
-          JSON.stringify(d.metadata || {}).toLowerCase().includes(search);
-        return matchesValue && matchesCategory && matchesSearch;
-      });
+          let data = dataset.data as any[];
 
-      let geojson: GeoJSON.FeatureCollection;
-
-      if (dataset.type === 'grid') {
-        // Dataset is already a grid, data contains GeoJSON features
-        geojson = {
-          type: "FeatureCollection",
-          features: data.map((f: any) => ({
-            type: "Feature",
-            geometry: f.geometry,
-            properties: f.properties
-          }))
-        };
-      } else if (isAreaMode) {
-        const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
-
-        if (gridType === 'hex') {
-          const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2)); 
-
-          data.forEach((d: any) => {
-            const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
-            const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] as [number, number][] };
-            
-            if (existing.count === 0) {
-              const [lat, lng] = h3.cellToLatLng(h3Index);
-              existing.lat = lat;
-              existing.lng = lng;
-              existing.coords = h3.cellToBoundary(h3Index, true);
-            }
-            
-            existing.value += (d.value || 0);
-            existing.count += 1;
-            grid.set(h3Index, existing);
+          // Apply filters server-side
+          data = data.filter(d => {
+            const val = d.value || 0;
+            const matchesValue = val >= min && val <= max;
+            const matchesCategory = cats.length === 0 || (d.category && cats.includes(d.category));
+            const matchesSearch = !search ||
+              JSON.stringify(d.metadata || {}).toLowerCase().includes(search);
+            return matchesValue && matchesCategory && matchesSearch;
           });
 
-          geojson = {
-            type: "FeatureCollection",
-            features: Array.from(grid.values()).map(cell => ({
-              type: "Feature",
-              geometry: { type: "Polygon", coordinates: [cell.coords] },
-              properties: { value: cell.value, count: cell.count, avg: cell.value / cell.count }
-            }))
-          };
-        } else {
-          const resolution = gridRes;
-          data.forEach((d: any) => {
-            const latBin = Math.floor(d.lat / resolution) * resolution;
-            const lngBin = Math.floor(d.lng / resolution) * resolution;
-            const key = `${latBin},${lngBin}`;
-            
-            const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] as [number, number][] };
-            existing.value += (d.value || 0);
-            existing.count += 1;
-            grid.set(key, existing);
-          });
+          let geojson: GeoJSON.FeatureCollection;
 
-          geojson = {
-            type: "FeatureCollection",
-            features: Array.from(grid.values()).map(cell => ({
-              type: "Feature",
-              geometry: {
-                type: "Polygon",
-                coordinates: [[
-                  [cell.lng, cell.lat],
-                  [cell.lng + resolution, cell.lat],
-                  [cell.lng + resolution, cell.lat + resolution],
-                  [cell.lng, cell.lat + resolution],
-                  [cell.lng, cell.lat]
-                ]]
-              },
-              properties: {
-                value: cell.value,
-                count: cell.count,
-                avg: cell.value / cell.count
-              }
-            }))
-          };
-        }
-      } else {
-        geojson = {
-          type: "FeatureCollection",
-          features: data.map((d: any) => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [d.lng, d.lat] },
-            properties: { 
-              value: d.value, 
-              category: d.category,
-              timestamp: typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime(),
-              ...d.metadata 
+          if (dataset.type === 'grid') {
+            geojson = {
+              type: "FeatureCollection",
+              features: data.map((f: any) => ({
+                type: "Feature",
+                geometry: f.geometry,
+                properties: f.properties
+              }))
+            };
+          } else if (isAreaMode) {
+            const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
+
+            if (gridType === 'hex') {
+              const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2));
+
+              data.forEach((d: any) => {
+                const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
+                const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] as [number, number][] };
+
+                if (existing.count === 0) {
+                  const [lat, lng] = h3.cellToLatLng(h3Index);
+                  existing.lat = lat;
+                  existing.lng = lng;
+                  existing.coords = h3.cellToBoundary(h3Index, true);
+                }
+
+                existing.value += (d.value || 0);
+                existing.count += 1;
+                grid.set(h3Index, existing);
+              });
+
+              geojson = {
+                type: "FeatureCollection",
+                features: Array.from(grid.values()).map(cell => ({
+                  type: "Feature",
+                  geometry: { type: "Polygon", coordinates: [cell.coords] },
+                  properties: { value: cell.value, count: cell.count, avg: cell.value / cell.count }
+                }))
+              };
+            } else {
+              const resolution = gridRes;
+              data.forEach((d: any) => {
+                const latBin = Math.floor(d.lat / resolution) * resolution;
+                const lngBin = Math.floor(d.lng / resolution) * resolution;
+                const key = `${latBin},${lngBin}`;
+
+                const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] as [number, number][] };
+                existing.value += (d.value || 0);
+                existing.count += 1;
+                grid.set(key, existing);
+              });
+
+              geojson = {
+                type: "FeatureCollection",
+                features: Array.from(grid.values()).map(cell => ({
+                  type: "Feature",
+                  geometry: {
+                    type: "Polygon",
+                    coordinates: [[
+                      [cell.lng, cell.lat],
+                      [cell.lng + resolution, cell.lat],
+                      [cell.lng + resolution, cell.lat + resolution],
+                      [cell.lng, cell.lat + resolution],
+                      [cell.lng, cell.lat]
+                    ]]
+                  },
+                  properties: {
+                    value: cell.value,
+                    count: cell.count,
+                    avg: cell.value / cell.count
+                  }
+                }))
+              };
             }
-          }))
-        };
+          } else {
+            geojson = {
+              type: "FeatureCollection",
+              features: data.map((d: any) => ({
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [d.lng, d.lat] },
+                properties: {
+                  value: d.value,
+                  category: d.category,
+                  timestamp: typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime(),
+                  ...d.metadata
+                }
+              }))
+            };
+          }
+
+          return geojsonvt(geojson, {
+            maxZoom: 14,
+            tolerance: 3,
+            extent: 4096,
+            buffer: 64,
+            debug: 0,
+            indexMaxZoom: 4,
+            indexMaxPoints: 100000
+          });
+        })();
+        tileBuildInFlight.set(cacheKey, buildPromise);
       }
 
-      tileIndex = geojsonvt(geojson, {
-        maxZoom: 14,
-        tolerance: 3,
-        extent: 4096,
-        buffer: 64,
-        debug: 0,
-        indexMaxZoom: 4,
-        indexMaxPoints: 100000
+      try {
+        tileIndex = await buildPromise;
+      } finally {
+        tileBuildInFlight.delete(cacheKey);
+      }
+
+      tileIndexCache.set(cacheKey, {
+        tileIndex,
+        datasetId: id,
+        createdAt: Date.now(),
+        lastAccessAt: Date.now()
       });
-      tileIndexCache.set(cacheKey, tileIndex);
+    } else if (cached) {
+      cached.lastAccessAt = Date.now();
     }
 
-    const tile = tileIndex.getTile(zInt, xInt, yInt);
+    const tile = tileIndex.getTile(z, x, y);
     if (!tile) {
       return res.status(204).send();
     }
 
     const buff = vtpbf.fromGeojsonVt({ "geoflux-layer": tile });
     res.setHeader("Content-Type", "application/x-protobuf");
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
     res.send(Buffer.from(buff));
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.statusCode === 404) return res.status(404).send("Dataset not found");
     console.error("Tile generation error:", error);
     res.status(500).send("Error generating tile");
   }
@@ -490,7 +566,7 @@ app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, r
     }
 
     await prisma.dataset.delete({ where: { id } });
-    tileIndexCache.delete(id);
+    evictDatasetTiles(id);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete dataset" });
