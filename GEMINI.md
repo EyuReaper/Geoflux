@@ -16,6 +16,7 @@ GeoFlux is a high-performance, real-time global data visualization and analysis 
 - **Framework:** Express
 - **ORM:** Prisma
 - **Database:** PostgreSQL (PostGIS recommended for spatial analysis)
+- **Cache:** Redis (for distributed tile caching and consistency)
 - **Validation:** Zod
 
 ## Architecture

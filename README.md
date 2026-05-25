@@ -9,6 +9,7 @@ This repository contains:
 - Node.js 20+
 - npm 10+
 - PostgreSQL 14+ with PostGIS extension available
+- Redis 6+ (for distributed caching)
 
 ## 1) Backend Setup
 
@@ -21,6 +22,7 @@ npm install
 2. Create `backend/.env`:
 ```env
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DB_NAME?schema=public"
+REDIS_URL="redis://localhost:6379"
 JWT_SECRET="replace-with-a-long-random-secret"
 PORT=4000
 ```

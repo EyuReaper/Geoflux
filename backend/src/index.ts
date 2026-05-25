@@ -14,6 +14,7 @@ import geojsonvt from "geojson-vt";
 import vtpbf from "vt-pbf";
 import * as h3 from "h3-js";
 import * as turf from "@turf/turf";
+import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACHE_PREFIX } from "./utils/redis.js";
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require(`${process.cwd()}/prisma/generated/prisma`);
@@ -50,6 +51,28 @@ const TILE_ZOOM_MAX = 22;
 const tileIndexCache = new Map<string, TileIndexRecord>();
 const tileBuildInFlight = new Map<string, Promise<ReturnType<typeof geojsonvt>>>();
 
+// Setup Redis Subscription for Cache Invalidation
+pubsub.subscribe(getInvalidationChannel(), (err) => {
+  if (err) console.error("Failed to subscribe to invalidation channel:", err);
+});
+
+pubsub.on("message", (channel, message) => {
+  if (channel === getInvalidationChannel()) {
+    try {
+      const { type, datasetId } = JSON.parse(message);
+      if (type === "EVICT_DATASET") {
+        for (const [key, record] of tileIndexCache.entries()) {
+          if (record.datasetId === datasetId) {
+            tileIndexCache.delete(key);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error processing invalidation message:", e);
+    }
+  }
+});
+
 const toFiniteNumber = (value: unknown, fallback: number) => {
   const n = typeof value === "string" ? Number(value) : Number.NaN;
   return Number.isFinite(n) ? n : fallback;
@@ -77,9 +100,26 @@ const pruneTileCache = () => {
   }
 };
 
-const evictDatasetTiles = (datasetId: string) => {
+const evictDatasetTiles = async (datasetId: string) => {
   for (const [key, record] of tileIndexCache.entries()) {
     if (record.datasetId === datasetId) tileIndexCache.delete(key);
+  }
+  // Publish invalidation to other instances
+  await redis.publish(getInvalidationChannel(), JSON.stringify({ type: "EVICT_DATASET", datasetId }));
+
+  // Clear Redis keys for this dataset
+  let cursor = "0";
+  const pattern = `${CACHE_PREFIX}${datasetId}:*`;
+  try {
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = nextCursor;
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== "0");
+  } catch (err) {
+    console.error("Error clearing Redis keys during eviction:", err);
   }
 };
 
@@ -240,6 +280,21 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
     const search = (req.query.search as string || '').toLowerCase();
 
     const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
+    
+    // Check Redis Cache first
+    const redisKey = getTileKey(id, cacheKey, z, x, y);
+    try {
+      const cachedPbf = await redis.getBuffer(redisKey);
+      if (cachedPbf) {
+        res.setHeader("Content-Type", "application/x-protobuf");
+        res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+        res.setHeader("X-Cache", "HIT-REDIS");
+        return res.send(cachedPbf);
+      }
+    } catch (err) {
+      console.warn("Redis cache error, falling back to local/DB:", err);
+    }
+
     const cached = tileIndexCache.get(cacheKey);
     let tileIndex = cached ? cached.tileIndex : undefined;
 
@@ -389,9 +444,14 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
     }
 
     const buff = vtpbf.fromGeojsonVt({ "geoflux-layer": tile });
+    const buffer = Buffer.from(buff);
+
+    // Cache to Redis in background
+    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch(err => console.error("Redis set error:", err));
+
     res.setHeader("Content-Type", "application/x-protobuf");
     res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
-    res.send(Buffer.from(buff));
+    res.send(buffer);
   } catch (error: any) {
     if (error?.statusCode === 404) return res.status(404).send("Dataset not found");
     console.error("Tile generation error:", error);
@@ -593,7 +653,7 @@ app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, r
     }
 
     await prisma.dataset.delete({ where: { id } });
-    evictDatasetTiles(id);
+    await evictDatasetTiles(id);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete dataset" });
