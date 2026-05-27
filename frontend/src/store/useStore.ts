@@ -600,15 +600,16 @@ export const useStore = create<GeoFluxState>((set, get) => ({
             throw new Error('Failed to fetch full dataset data')
           }
           const fullDataset = await response.json()
+          const datasetData = fullDataset.data || []
 
           set((state) => ({
-            datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: fullDataset.data, type: fullDataset.type } : d)
+            datasets: state.datasets.map(d => d.id === fullDataset.id ? { ...d, data: datasetData, type: fullDataset.type } : d)
           }))
 
           const isGrid = fullDataset.type === 'grid'
           const rawData = isGrid 
-            ? fullDataset.data.map((f: any) => f.properties)
-            : fullDataset.data.map((d: any) => d.metadata as Record<string, unknown>)
+            ? datasetData.map((f: any) => f.properties)
+            : datasetData.map((d: any) => d.metadata as Record<string, unknown>)
 
           set({
             activeDatasetId: id,

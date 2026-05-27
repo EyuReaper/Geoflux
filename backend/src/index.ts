@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
@@ -200,29 +201,27 @@ app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest
       return res.status(404).json({ error: "Dataset not found" });
     }
 
-    const data = dataset.data as any[];
-    if (!data || data.length === 0) {
-      return res.json({ min: 0, max: 0, categories: [], count: 0 });
-    }
+    const stats = await prisma.feature.aggregate({
+      where: { datasetId: id },
+      _min: { value: true },
+      _max: { value: true },
+      _count: true,
+    });
 
-    let min = Infinity;
-    let max = -Infinity;
-    const categories = new Set<string>();
-
-    data.forEach(d => {
-      const v = d.value || 0;
-      if (v < min) min = v;
-      if (v > max) max = v;
-      if (d.category) categories.add(d.category);
+    const categoryRows = await prisma.feature.findMany({
+      where: { datasetId: id },
+      distinct: ['category'],
+      select: { category: true }
     });
 
     res.json({
-      min: min === Infinity ? 0 : min,
-      max: max === -Infinity ? 0 : max,
-      categories: Array.from(categories),
-      count: data.length
+      min: stats._min.value || 0,
+      max: stats._max.value || 0,
+      categories: categoryRows.map((r: any) => r.category).filter(Boolean),
+      count: stats._count
     });
   } catch (error) {
+    console.error("Stats error:", error);
     res.status(500).json({ error: "Failed to fetch stats" });
   }
 });
@@ -236,10 +235,10 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
         id: true,
         name: true,
         color: true,
+        type: true,
         userId: true,
         createdAt: true,
         updatedAt: true,
-        data: true,
       }
     });
     
@@ -255,8 +254,6 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
 // MVT Tile Route
 app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
   try {
-    pruneTileCache();
-
     const id = firstParam(req.params.id);
     const z = Number.parseInt(firstParam(req.params.z), 10);
     const x = Number.parseInt(firstParam(req.params.x), 10);
@@ -266,194 +263,76 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
       return res.status(400).json({ error: "Invalid tile coordinates" });
     }
 
-    if (z < TILE_ZOOM_MIN || z > TILE_ZOOM_MAX || x < 0 || y < 0 || x >= (2 ** z) || y >= (2 ** z)) {
-      return res.status(400).json({ error: "Tile coordinates out of range" });
-    }
-
-    const isAreaMode = req.query.mode === 'area';
-    const gridType = req.query.gridType === "hex" ? "hex" : "square";
-    const gridRes = clamp(toFiniteNumber(req.query.res, 0.05), 0.001, 5);
     const min = toFiniteNumber(req.query.min, 0);
     const maxRaw = toFiniteNumber(req.query.max, Number.POSITIVE_INFINITY);
     const max = maxRaw >= min ? maxRaw : min;
     const cats = (req.query.cats as string || '').split(',').filter(Boolean);
     const search = (req.query.search as string || '').toLowerCase();
+    const isAreaMode = req.query.mode === 'area';
 
-    const cacheKey = `${id}-${isAreaMode ? `grid-${gridType}-${gridRes}` : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
-    
-    // Check Redis Cache first
+    const cacheKey = `${id}-${isAreaMode ? 'area' : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
     const redisKey = getTileKey(id, cacheKey, z, x, y);
+
     try {
       const cachedPbf = await redis.getBuffer(redisKey);
       if (cachedPbf) {
         res.setHeader("Content-Type", "application/x-protobuf");
-        res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+        res.setHeader("Cache-Control", "public, max-age=60");
         res.setHeader("X-Cache", "HIT-REDIS");
         return res.send(cachedPbf);
       }
     } catch (err) {
-      console.warn("Redis cache error, falling back to local/DB:", err);
+      console.warn("Redis cache error:", err);
     }
 
-    const cached = tileIndexCache.get(cacheKey);
-    let tileIndex = cached ? cached.tileIndex : undefined;
+    const dataset = await prisma.dataset.findUnique({ where: { id }, select: { type: true } });
+    if (!dataset) return res.status(404).send("Dataset not found");
 
-    if (!tileIndex) {
-      let buildPromise = tileBuildInFlight.get(cacheKey);
-      if (!buildPromise) {
-        buildPromise = (async () => {
-          const dataset = await prisma.dataset.findUnique({ where: { id } });
-          if (!dataset) throw Object.assign(new Error("Dataset not found"), { statusCode: 404 });
+    // Build the SQL query for MVT
+    // Note: ST_TileEnvelope(z, x, y) generates the bounding box for the tile
+    let query = `
+      WITH mvt_geom AS (
+        SELECT 
+          ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
+          properties || jsonb_build_object('value', "value", 'category', "category") as props
+        FROM "Feature"
+        WHERE "datasetId" = $4
+          AND geometry && ST_TileEnvelope($1, $2, $3)
+          AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
+    `;
 
-          let data = dataset.data as any[];
+    const params: any[] = [z, x, y, id, min, max];
+    let paramIdx = 7;
 
-          // Apply filters server-side
-          data = data.filter(d => {
-            const val = d.value || 0;
-            const matchesValue = val >= min && val <= max;
-            const matchesCategory = cats.length === 0 || (d.category && cats.includes(d.category));
-            const matchesSearch = !search ||
-              JSON.stringify(d.metadata || {}).toLowerCase().includes(search);
-            return matchesValue && matchesCategory && matchesSearch;
-          });
-
-          let geojson: GeoJSON.FeatureCollection;
-
-          if (dataset.type === 'grid') {
-            geojson = {
-              type: "FeatureCollection",
-              features: data.map((f: any) => ({
-                type: "Feature",
-                geometry: f.geometry,
-                properties: f.properties
-              }))
-            };
-          } else if (isAreaMode) {
-            const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
-
-            if (gridType === 'hex') {
-              const h3Resolution = Math.min(10, Math.max(3, Math.round(gridRes) + 2));
-
-              data.forEach((d: any) => {
-                const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
-                const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] as [number, number][] };
-
-                if (existing.count === 0) {
-                  const [lat, lng] = h3.cellToLatLng(h3Index);
-                  existing.lat = lat;
-                  existing.lng = lng;
-                  existing.coords = h3.cellToBoundary(h3Index, true);
-                }
-
-                existing.value += (d.value || 0);
-                existing.count += 1;
-                grid.set(h3Index, existing);
-              });
-
-              geojson = {
-                type: "FeatureCollection",
-                features: Array.from(grid.values()).map(cell => ({
-                  type: "Feature",
-                  geometry: { type: "Polygon", coordinates: [cell.coords] },
-                  properties: { value: cell.value, count: cell.count, avg: cell.value / cell.count }
-                }))
-              };
-            } else {
-              const resolution = gridRes;
-              data.forEach((d: any) => {
-                const latBin = Math.floor(d.lat / resolution) * resolution;
-                const lngBin = Math.floor(d.lng / resolution) * resolution;
-                const key = `${latBin},${lngBin}`;
-
-                const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] as [number, number][] };
-                existing.value += (d.value || 0);
-                existing.count += 1;
-                grid.set(key, existing);
-              });
-
-              geojson = {
-                type: "FeatureCollection",
-                features: Array.from(grid.values()).map(cell => ({
-                  type: "Feature",
-                  geometry: {
-                    type: "Polygon",
-                    coordinates: [[
-                      [cell.lng, cell.lat],
-                      [cell.lng + resolution, cell.lat],
-                      [cell.lng + resolution, cell.lat + resolution],
-                      [cell.lng, cell.lat + resolution],
-                      [cell.lng, cell.lat]
-                    ]]
-                  },
-                  properties: {
-                    value: cell.value,
-                    count: cell.count,
-                    avg: cell.value / cell.count
-                  }
-                }))
-              };
-            }
-          } else {
-            geojson = {
-              type: "FeatureCollection",
-              features: data.map((d: any) => ({
-                type: "Feature",
-                geometry: { type: "Point", coordinates: [d.lng, d.lat] },
-                properties: {
-                  value: d.value,
-                  category: d.category,
-                  timestamp: typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp || 0).getTime(),
-                  ...d.metadata
-                }
-              }))
-            };
-          }
-
-          return geojsonvt(geojson, {
-            maxZoom: 14,
-            tolerance: 3,
-            extent: 4096,
-            buffer: 64,
-            debug: 0,
-            indexMaxZoom: 4,
-            indexMaxPoints: 100000
-          });
-        })();
-        tileBuildInFlight.set(cacheKey, buildPromise);
-      }
-
-      try {
-        tileIndex = await buildPromise;
-      } finally {
-        tileBuildInFlight.delete(cacheKey);
-      }
-
-      tileIndexCache.set(cacheKey, {
-        tileIndex,
-        datasetId: id,
-        createdAt: Date.now(),
-        lastAccessAt: Date.now()
-      });
-    } else if (cached) {
-      cached.lastAccessAt = Date.now();
+    if (cats.length > 0) {
+      query += ` AND "category" = ANY($${paramIdx++})`;
+      params.push(cats);
     }
 
-    const tile = tileIndex.getTile(z, x, y);
-    if (!tile) {
+    if (search) {
+      query += ` AND "properties"::text ILIKE $${paramIdx++}`;
+      params.push(`%${search}%`);
+    }
+
+    query += `
+      )
+      SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
+    `;
+
+    const result = await prisma.$queryRawUnsafe(query, ...params);
+    const buffer = (result as any)[0]?.mvt;
+
+    if (!buffer || buffer.length === 0) {
       return res.status(204).send();
     }
 
-    const buff = vtpbf.fromGeojsonVt({ "geoflux-layer": tile });
-    const buffer = Buffer.from(buff);
-
-    // Cache to Redis in background
-    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch(err => console.error("Redis set error:", err));
+    // Cache to Redis
+    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch(console.error);
 
     res.setHeader("Content-Type", "application/x-protobuf");
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+    res.setHeader("Cache-Control", "public, max-age=60");
     res.send(buffer);
-  } catch (error: any) {
-    if (error?.statusCode === 404) return res.status(404).send("Dataset not found");
+  } catch (error) {
     console.error("Tile generation error:", error);
     res.status(500).send("Error generating tile");
   }
@@ -463,17 +342,49 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
 app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) => {
   try {
     const { name, color, data, type } = req.body;
+    
+    // Create the dataset record first
     const dataset = await prisma.dataset.create({
       data: {
         name,
         color: color || "#06b6d4",
         type: type || "points",
-        data: data as any,
         userId: req.user?.id,
       },
     });
+
+    // Ingest features into the Feature table
+    if (Array.isArray(data) && data.length > 0) {
+      // Process in batches for performance
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < data.length; i += BATCH_SIZE) {
+        const batch = data.slice(i, i + BATCH_SIZE);
+        
+        await Promise.all(batch.map(async (item: any) => {
+          const id = crypto.randomUUID();
+          const geometry = item.geometry || {
+            type: "Point",
+            coordinates: [item.lng, item.lat]
+          };
+          
+          // Use executeRaw for geometry insertion
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
+             VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326), $4, $5, $6)`,
+            id,
+            dataset.id,
+            JSON.stringify(geometry),
+            JSON.stringify(item.metadata || {}),
+            item.value || null,
+            item.category || null
+          );
+        }));
+      }
+    }
+
     res.status(201).json(dataset);
   } catch (error) {
+    console.error("Dataset creation error:", error);
     res.status(500).json({ error: "Failed to create dataset" });
   }
 });
@@ -504,8 +415,24 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
       return res.status(404).json({ error: "Source dataset not found or access denied" });
     }
 
-    const sourceData = sourceDataset.data as any[];
-    if (!sourceData || sourceData.length === 0) {
+    // Fetch features from DB
+    const featuresFromDb = await prisma.$queryRawUnsafe(`
+      SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category 
+      FROM "Feature" 
+      WHERE "datasetId" = $1
+    `, sourceDatasetId);
+
+    const sourceData = (featuresFromDb as any[]).map(f => ({
+      ...f.properties,
+      geometry: f.geometry,
+      value: f.value,
+      category: f.category,
+      lat: f.geometry.type === 'Point' ? f.geometry.coordinates[1] : undefined,
+      lng: f.geometry.type === 'Point' ? f.geometry.coordinates[0] : undefined,
+      metadata: f.properties
+    }));
+
+    if (sourceData.length === 0) {
       return res.status(200).json({ features: [] });
     }
 
@@ -621,10 +548,30 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
           name,
           color: "#f97316",
           type: isAreaResult ? "grid" : "points",
-          data: resultGeoJson.features as any,
           userId: req.user?.id,
         }
       });
+
+      // Persist features
+      const features = resultGeoJson.features;
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < features.length; i += BATCH_SIZE) {
+        const batch = features.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (f: any) => {
+          const id = crypto.randomUUID();
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
+             VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326), $4, $5, $6)`,
+            id,
+            newDataset.id,
+            JSON.stringify(f.geometry),
+            JSON.stringify(f.properties || {}),
+            f.properties?.value || null,
+            f.properties?.category || null
+          );
+        }));
+      }
+
       return res.status(201).json(newDataset);
     }
 
