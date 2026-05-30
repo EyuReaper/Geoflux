@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
@@ -16,6 +18,17 @@ import vtpbf from "vt-pbf";
 import * as h3 from "h3-js";
 import * as turf from "@turf/turf";
 import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACHE_PREFIX } from "./utils/redis.js";
+import { 
+  validateRequest, 
+  registerSchema, 
+  loginSchema, 
+  datasetCreateSchema, 
+  spatialToolSchema, 
+  tileParamsSchema,
+  workspaceCreateSchema,
+  workspaceShareSchema,
+  uuidParamSchema
+} from "./utils/validation.js";
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require(`${process.cwd()}/prisma/generated/prisma`);
@@ -126,8 +139,38 @@ const evictDatasetTiles = async (datasetId: string) => {
 
 const firstParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
 
+// Security Middleware
+app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
+
+// General Rate Limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." }
+});
+
+// Auth Rate Limiting (stricter)
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // limit each IP to 10 login/register attempts per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts, please try again later." }
+});
+
+// Tile Server Rate Limiting (generous for map browsing)
+const tileLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 1000, // limit each IP to 1000 tile requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(generalLimiter);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -136,12 +179,9 @@ app.get("/health", (req, res) => {
 // --- AUTH ROUTES ---
 
 // Register
-app.post("/register", async (req, res) => {
+app.post("/register", authLimiter, validateRequest(registerSchema), async (req, res) => {
   try {
     const { email, password, name } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password required" });
-    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
@@ -159,7 +199,7 @@ app.post("/register", async (req, res) => {
 });
 
 // Login
-app.post("/login", async (req, res) => {
+app.post("/login", authLimiter, validateRequest(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await prisma.user.findUnique({ where: { email } });
@@ -190,13 +230,13 @@ app.get("/datasets", authenticateToken as any, async (req: AuthRequest, res) => 
   }
 });
 
-app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest, res) => {
+app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
   try {
-    const id = firstParam(req.params.id);
+    const { id } = req.params as any;
     const dataset = await prisma.dataset.findUnique({
       where: { id },
     });
-    
+
     if (!dataset || dataset.userId !== req.user?.id) {
       return res.status(404).json({ error: "Dataset not found" });
     }
@@ -226,9 +266,9 @@ app.get("/datasets/:id/stats", authenticateToken as any, async (req: AuthRequest
   }
 });
 
-app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
+app.get("/datasets/:id", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
   try {
-    const id = firstParam(req.params.id);
+    const { id } = req.params as any;
     const dataset = await prisma.dataset.findUnique({
       where: { id },
       select: {
@@ -241,7 +281,7 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
         updatedAt: true,
       }
     });
-    
+
     if (!dataset || dataset.userId !== req.user?.id) {
       return res.status(404).json({ error: "Dataset not found" });
     }
@@ -250,25 +290,13 @@ app.get("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res)
     res.status(500).json({ error: "Failed to fetch dataset" });
   }
 });
-
 // MVT Tile Route
-app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
+app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tileParamsSchema), async (req, res) => {
   try {
-    const id = firstParam(req.params.id);
-    const z = Number.parseInt(firstParam(req.params.z), 10);
-    const x = Number.parseInt(firstParam(req.params.x), 10);
-    const y = Number.parseInt(firstParam(req.params.y), 10);
+    const { id, z, x, y } = req.params as any;
+    const { min, max, cats, search, mode } = req.query as any;
 
-    if (![z, x, y].every(Number.isInteger)) {
-      return res.status(400).json({ error: "Invalid tile coordinates" });
-    }
-
-    const min = toFiniteNumber(req.query.min, 0);
-    const maxRaw = toFiniteNumber(req.query.max, Number.POSITIVE_INFINITY);
-    const max = maxRaw >= min ? maxRaw : min;
-    const cats = (req.query.cats as string || '').split(',').filter(Boolean);
-    const search = (req.query.search as string || '').toLowerCase();
-    const isAreaMode = req.query.mode === 'area';
+    const isAreaMode = mode === 'area';
 
     const cacheKey = `${id}-${isAreaMode ? 'area' : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
     const redisKey = getTileKey(id, cacheKey, z, x, y);
@@ -339,7 +367,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", async (req, res) => {
 });
 
 
-app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) => {
+app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSchema), async (req: AuthRequest, res) => {
   try {
     const { name, color, data, type } = req.body;
     
@@ -391,9 +419,9 @@ app.post("/datasets", authenticateToken as any, async (req: AuthRequest, res) =>
 
 
 // --- SPATIAL TOOL ROUTE (Protected) ---
-app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: AuthRequest, res) => {
+app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest(spatialToolSchema), async (req: AuthRequest, res) => {
   try {
-    const sourceDatasetId = firstParam(req.params.id);
+    const { id: sourceDatasetId } = req.params as any;
     const { 
       type, 
       targetGridType, 
@@ -405,10 +433,6 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, async (req: Aut
       persist, 
       customName 
     } = req.body;
-
-    if (!sourceDatasetId || !type) {
-      return res.status(400).json({ error: "Missing required parameters: sourceDatasetId, type" });
-    }
 
     const sourceDataset = await prisma.dataset.findUnique({ where: { id: sourceDatasetId } });
     if (!sourceDataset || sourceDataset.userId !== req.user?.id) {
@@ -590,9 +614,9 @@ app.post("/datasets/:id/spatial-aggregate", authenticateToken as any, async (req
   res.redirect(307, `/datasets/${sourceDatasetId}/spatial-tool`);
 });
 
-app.delete("/datasets/:id", authenticateToken as any, async (req: AuthRequest, res) => {
+app.delete("/datasets/:id", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
   try {
-    const id = firstParam(req.params.id);
+    const { id } = req.params as any;
     const dataset = await prisma.dataset.findUnique({ where: { id } });
     
     if (!dataset || dataset.userId !== req.user?.id) {
@@ -621,7 +645,7 @@ app.get("/workspaces", authenticateToken as any, async (req: AuthRequest, res) =
   }
 });
 
-app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) => {
+app.post("/workspaces", authenticateToken as any, validateRequest(workspaceCreateSchema), async (req: AuthRequest, res) => {
   try {
     const { name, config } = req.body;
     const workspace = await prisma.workspace.create({
@@ -633,9 +657,9 @@ app.post("/workspaces", authenticateToken as any, async (req: AuthRequest, res) 
   }
 });
 
-app.get("/workspaces/:id", async (req, res) => {
+app.get("/workspaces/:id", validateRequest(uuidParamSchema), async (req, res) => {
   try {
-    const id = firstParam(req.params.id);
+    const { id } = req.params as any;
     const workspace = await prisma.workspace.findUnique({
       where: { id },
     });
@@ -663,9 +687,9 @@ app.get("/workspaces/:id", async (req, res) => {
   }
 });
 
-app.patch("/workspaces/:id/share", authenticateToken as any, async (req: AuthRequest, res) => {
+app.patch("/workspaces/:id/share", authenticateToken as any, validateRequest(workspaceShareSchema), async (req: AuthRequest, res) => {
   try {
-    const id = firstParam(req.params.id);
+    const { id } = req.params as any;
     const { isPublic } = req.body;
     
     const workspace = await prisma.workspace.findUnique({ where: { id } });
