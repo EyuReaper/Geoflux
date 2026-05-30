@@ -17,6 +17,9 @@ import geojsonvt from "geojson-vt";
 import vtpbf from "vt-pbf";
 import * as h3 from "h3-js";
 import * as turf from "@turf/turf";
+import { pinoHttp } from "pino-http";
+import { logger } from "./utils/logger.js";
+import { errorHandler } from "./middleware/error.js";
 import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACHE_PREFIX } from "./utils/redis.js";
 import { 
   validateRequest, 
@@ -67,7 +70,7 @@ const tileBuildInFlight = new Map<string, Promise<ReturnType<typeof geojsonvt>>>
 
 // Setup Redis Subscription for Cache Invalidation
 pubsub.subscribe(getInvalidationChannel(), (err) => {
-  if (err) console.error("Failed to subscribe to invalidation channel:", err);
+  if (err) logger.error({ err }, "Failed to subscribe to invalidation channel");
 });
 
 pubsub.on("message", (channel, message) => {
@@ -82,7 +85,7 @@ pubsub.on("message", (channel, message) => {
         }
       }
     } catch (e) {
-      console.error("Error processing invalidation message:", e);
+      logger.error({ err: e }, "Error processing invalidation message");
     }
   }
 });
@@ -133,11 +136,14 @@ const evictDatasetTiles = async (datasetId: string) => {
       }
     } while (cursor !== "0");
   } catch (err) {
-    console.error("Error clearing Redis keys during eviction:", err);
+    logger.error({ err }, "Error clearing Redis keys during eviction");
   }
 };
 
 const firstParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
+
+// Logging Middleware
+app.use(pinoHttp({ logger }));
 
 // Security Middleware
 app.use(helmet());
@@ -260,14 +266,14 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
       categories: categoryRows.map((r: any) => r.category).filter(Boolean),
       count: stats._count
     });
-  } catch (error) {
-    console.error("Stats error:", error);
+    } catch (error) {
+    logger.error({ err: error, id }, "Stats error");
     res.status(500).json({ error: "Failed to fetch stats" });
-  }
-});
+    }
+    });
 
-app.get("/datasets/:id", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
-  try {
+    app.get("/datasets/:id", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
+    try {
     const { id } = req.params as any;
     const dataset = await prisma.dataset.findUnique({
       where: { id },
@@ -286,13 +292,14 @@ app.get("/datasets/:id", authenticateToken as any, validateRequest(uuidParamSche
       return res.status(404).json({ error: "Dataset not found" });
     }
     res.json(dataset);
-  } catch (error) {
+    } catch (error) {
     res.status(500).json({ error: "Failed to fetch dataset" });
-  }
-});
-// MVT Tile Route
-app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tileParamsSchema), async (req, res) => {
-  try {
+    }
+    });
+
+    // MVT Tile Route
+    app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tileParamsSchema), async (req, res) => {
+    try {
     const { id, z, x, y } = req.params as any;
     const { min, max, cats, search, mode } = req.query as any;
 
@@ -310,7 +317,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tilePar
         return res.send(cachedPbf);
       }
     } catch (err) {
-      console.warn("Redis cache error:", err);
+      logger.warn({ err }, "Redis cache error");
     }
 
     const dataset = await prisma.dataset.findUnique({ where: { id }, select: { type: true } });
@@ -320,7 +327,7 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tilePar
     // Note: ST_TileEnvelope(z, x, y) generates the bounding box for the tile
     let query = `
       WITH mvt_geom AS (
-        SELECT 
+        SELECT
           ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
           properties || jsonb_build_object('value', "value", 'category', "category") as props
         FROM "Feature"
@@ -355,16 +362,17 @@ app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tilePar
     }
 
     // Cache to Redis
-    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch(console.error);
+    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch((err) => logger.error({ err }, "Failed to cache tile to Redis"));
 
     res.setHeader("Content-Type", "application/x-protobuf");
     res.setHeader("Cache-Control", "public, max-age=60");
     res.send(buffer);
-  } catch (error) {
-    console.error("Tile generation error:", error);
+    } catch (error) {
+    logger.error({ err: error }, "Tile generation error");
     res.status(500).send("Error generating tile");
-  }
-});
+    }
+    });
+
 
 
 app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSchema), async (req: AuthRequest, res) => {
@@ -412,7 +420,7 @@ app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSch
 
     res.status(201).json(dataset);
   } catch (error) {
-    console.error("Dataset creation error:", error);
+    logger.error({ err: error }, "Dataset creation error");
     res.status(500).json({ error: "Failed to create dataset" });
   }
 });
@@ -602,7 +610,7 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
     res.json(resultGeoJson);
 
   } catch (error) {
-    console.error("Spatial tool error:", error);
+    logger.error({ err: error }, "Spatial tool error");
     res.status(500).json({ error: "Failed to perform spatial operation" });
   }
 });
@@ -713,11 +721,11 @@ app.patch("/workspaces/:id/share", authenticateToken as any, validateRequest(wor
 let simulationInterval: NodeJS.Timeout | null = null;
 
 io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
+  logger.info({ socketId: socket.id }, "Client connected");
 
   socket.on("start-live", () => {
     if (!simulationInterval) {
-      console.log("Starting live simulation");
+      logger.info("Starting live simulation");
       simulationInterval = setInterval(() => {
         const point = {
           id: Math.random().toString(36).substr(2, 9),
@@ -733,7 +741,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("stop-live", () => {
-    console.log("Stopping live simulation");
+    logger.info("Stopping live simulation");
     if (simulationInterval) {
       clearInterval(simulationInterval);
       simulationInterval = null;
@@ -741,7 +749,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected");
+    logger.info({ socketId: socket.id }, "Client disconnected");
     if (io.engine.clientsCount === 0 && simulationInterval) {
       clearInterval(simulationInterval);
       simulationInterval = null;
@@ -749,6 +757,9 @@ io.on("connection", (socket) => {
   });
 });
 
+app.use(errorHandler);
+
 httpServer.listen(port, () => {
-  console.log(`Backend running at http://localhost:${port}`);
+  logger.info(`Backend running at http://localhost:${port}`);
 });
+
