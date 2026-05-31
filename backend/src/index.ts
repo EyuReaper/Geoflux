@@ -21,6 +21,7 @@ import { pinoHttp } from "pino-http";
 import { logger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/error.js";
 import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACHE_PREFIX } from "./utils/redis.js";
+import { startMaintenanceWorker } from "./utils/cleanup.js";
 import { getOpenApiDocumentation } from "./swagger.js";
 import swaggerUi from "swagger-ui-express";
 import { 
@@ -198,10 +199,15 @@ app.get("/health", async (req, res) => {
     redisStatus = "down";
   }
 
-  const status = dbStatus === "up" && redisStatus === "up" ? "ok" : "error";
+  const mem = process.memoryUsage();
   res.status(status === "ok" ? 200 : 503).json({
     status,
     timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: {
+      rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
+      heapUsed: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
+    },
     services: {
       database: dbStatus,
       redis: redisStatus,
@@ -815,6 +821,7 @@ app.use(errorHandler);
 if (process.env.NODE_ENV !== "test") {
   httpServer.listen(port, () => {
     logger.info(`Backend running at http://localhost:${port}`);
+    startMaintenanceWorker();
   });
 }
 
