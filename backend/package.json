@@ -9,6 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/src/index.js",
+    "start:prod": "npx prisma migrate deploy && node dist/src/index.js",
     "smoke:runtime": "node scripts/smoke-runtime.mjs",
     "gate:runtime": "npm run build && npm run smoke:runtime"
   },

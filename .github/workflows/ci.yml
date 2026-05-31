@@ -80,3 +80,16 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+        env:
+          VITE_API_URL: https://api.geoflux.com # Example for CI build check
+
+  # Deployment Job (Example CD workflow)
+  # deploy:
+  #   needs: [backend, frontend]
+  #   if: github.ref == 'refs/heads/master'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Deploy to Production
+  #       run: |
+  #         # Add your deployment logic here (e.g., SSH, Docker push, etc.)
+  #         # Example: npx prisma migrate deploy (on production server)
