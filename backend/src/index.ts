@@ -71,11 +71,11 @@ const tileIndexCache = new Map<string, TileIndexRecord>();
 const tileBuildInFlight = new Map<string, Promise<ReturnType<typeof geojsonvt>>>();
 
 // Setup Redis Subscription for Cache Invalidation
-pubsub.subscribe(getInvalidationChannel(), (err) => {
+pubsub.subscribe(getInvalidationChannel(), (err: Error | null) => {
   if (err) logger.error({ err }, "Failed to subscribe to invalidation channel");
 });
 
-pubsub.on("message", (channel, message) => {
+pubsub.on("message", (channel: string, message: string) => {
   if (channel === getInvalidationChannel()) {
     try {
       const { type, datasetId } = JSON.parse(message);
@@ -396,7 +396,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
     }
 
     // Cache to Redis
-    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch((err) => logger.error({ err }, "Failed to cache tile to Redis"));
+    redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch((err: Error) => logger.error({ err }, "Failed to cache tile to Redis"));
 
     res.setHeader("Content-Type", "application/x-protobuf");
     res.setHeader("Cache-Control", "public, max-age=60");
@@ -506,7 +506,13 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
 
     const pointFeatures = sourceData
       .filter((d: any) => typeof d.lat === "number" && typeof d.lng === "number")
-      .map((d: any) => turf.point([d.lng, d.lat], { ...d.metadata, value: d.value }));
+      .map((d: any) => turf.truncate(turf.cleanCoords(turf.point([d.lng, d.lat], { ...d.metadata, value: d.value }))));
+
+    if (pointFeatures.length === 0) {
+      return res.status(400).json({ error: "No valid point geometries found in source dataset" });
+    }
+
+    const pointFC = turf.featureCollection(pointFeatures) as any;
 
     if (type === 'aggregation') {
       const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
@@ -569,38 +575,51 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
           properties: { 
             value: cell.value, 
             count: cell.count, 
-            avg: cell.value / cell.count 
+            avg: cell.count > 0 ? cell.value / cell.count : 0 
           }
         })) as any
       };
     } else if (type === 'buffer') {
-      const points = pointFeatures;
-      const buffered = points.map(p => turf.buffer(p, bufferRadius || 5, { units: 'kilometers' }));
+      const buffered = pointFeatures.map(p => {
+        try {
+          return turf.buffer(p, Math.max(0.001, bufferRadius || 5), { units: 'kilometers' });
+        } catch (e) {
+          logger.warn({ err: e, p }, "Buffer failed for point");
+          return null;
+        }
+      }).filter(Boolean);
+      
+      if (buffered.length === 0) return res.status(422).json({ error: "Buffer operation failed for all points" });
       resultGeoJson = turf.featureCollection(buffered as any);
     } else if (type === 'clustering') {
-      const points = turf.featureCollection(pointFeatures);
-      const clustered = turf.clustersDbscan(points, clusterRadius || 10, { units: 'kilometers', minPoints: 1 });
+      if (pointFeatures.length < 1) return res.status(422).json({ error: "At least 1 point required for clustering" });
+      const clustered = turf.clustersDbscan(pointFC, Math.max(0.001, clusterRadius || 10), { units: 'kilometers', minPoints: 1 });
       resultGeoJson = clustered;
     } else if (type === "convex_hull") {
-      const points = turf.featureCollection(pointFeatures);
-      const hull = turf.convex(points);
-      if (!hull) return res.status(422).json({ error: "Convex hull could not be generated (need at least 3 non-collinear points)" });
+      if (pointFeatures.length < 3) return res.status(422).json({ error: "At least 3 points required for convex hull" });
+      const hull = turf.convex(pointFC);
+      if (!hull) return res.status(422).json({ error: "Convex hull could not be generated (points might be collinear)" });
       resultGeoJson = turf.featureCollection([hull]);
     } else if (type === "concave_hull") {
-      const points = turf.featureCollection(pointFeatures);
-      const maxEdge = Number.isFinite(Number(hullMaxEdge)) ? Number(hullMaxEdge) : 10;
-      const hull = turf.concave(points, { maxEdge, units: "kilometers" });
-      if (!hull) return res.status(422).json({ error: "Concave hull could not be generated (try increasing max edge)" });
+      if (pointFeatures.length < 3) return res.status(422).json({ error: "At least 3 points required for concave hull" });
+      const maxEdge = Number.isFinite(Number(hullMaxEdge)) ? Math.max(0.001, Number(hullMaxEdge)) : 10;
+      const hull = turf.concave(pointFC, { maxEdge, units: "kilometers" });
+      if (!hull) return res.status(422).json({ error: "Concave hull could not be generated (try increasing max edge or check for sparse data)" });
       resultGeoJson = turf.featureCollection([hull]);
     } else if (type === "voronoi") {
-      const points = turf.featureCollection(pointFeatures);
-      const bbox = turf.bbox(points);
+      if (pointFeatures.length < 2) return res.status(422).json({ error: "At least 2 points required for Voronoi tessellation" });
+      const bbox = turf.bbox(pointFC);
       const paddingX = Math.max((bbox[2] - bbox[0]) * 0.1, 0.1);
       const paddingY = Math.max((bbox[3] - bbox[1]) * 0.1, 0.1);
       const paddedBBox: [number, number, number, number] = [bbox[0] - paddingX, bbox[1] - paddingY, bbox[2] + paddingX, bbox[3] + paddingY];
-      const voronoi = turf.voronoi(points, { bbox: paddedBBox });
-      if (!voronoi) return res.status(422).json({ error: "Voronoi tessellation failed" });
-      resultGeoJson = voronoi as GeoJSON.FeatureCollection;
+      try {
+        const voronoi = turf.voronoi(pointFC, { bbox: paddedBBox });
+        if (!voronoi) throw new Error("Turf voronoi returned null");
+        resultGeoJson = voronoi as GeoJSON.FeatureCollection;
+      } catch (e) {
+        logger.error({ err: e }, "Voronoi failed");
+        return res.status(422).json({ error: "Voronoi tessellation failed (ensure points are not all identical)" });
+      }
     } else {
       return res.status(400).json({ error: "Invalid tool type" });
     }

@@ -17,8 +17,8 @@ export const redis = isTest ? ({} as any) : new Redis(REDIS_URL, {
 export const pubsub = isTest ? ({} as any) : new Redis(REDIS_URL);
 
 if (!isTest) {
-  redis.on("error", (err) => logger.error({ err }, "Redis Error"));
-  pubsub.on("error", (err) => logger.error({ err }, "Redis PubSub Error"));
+  redis.on("error", (err: Error) => logger.error({ err }, "Redis Error"));
+  pubsub.on("error", (err: Error) => logger.error({ err }, "Redis PubSub Error"));
 }
 
 export const CACHE_PREFIX = "geoflux:tile:";
