@@ -1,14 +1,17 @@
 import { z } from "zod";
+import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import type { Request, Response, NextFunction } from "express";
 
-export const validateRequest = (schema: z.ZodObject<any> | z.ZodEffects<any>) => {
+extendZodWithOpenApi(z);
+
+export const validateRequest = (schema: z.ZodObject<any> | z.ZodTypeAny) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const validated = await schema.parseAsync({
         body: req.body,
         query: req.query,
         params: req.params,
-      });
+      }) as any;
       req.body = validated.body;
       req.query = validated.query;
       req.params = validated.params;
@@ -17,7 +20,7 @@ export const validateRequest = (schema: z.ZodObject<any> | z.ZodEffects<any>) =>
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: "Validation failed",
-          details: error.errors.map((e) => ({
+          details: error.issues.map((e: any) => ({
             path: e.path.join("."),
             message: e.message,
           })),
@@ -53,7 +56,7 @@ export const datasetCreateSchema = z.object({
       lng: z.number().min(-180).max(180),
       value: z.number().optional(),
       category: z.string().optional(),
-      metadata: z.record(z.any()).optional(),
+      metadata: z.record(z.string(), z.any()).optional(),
       geometry: z.object({
         type: z.string(),
         coordinates: z.array(z.any()),
@@ -98,7 +101,7 @@ export const tileParamsSchema = z.object({
 export const workspaceCreateSchema = z.object({
   body: z.object({
     name: z.string().min(1),
-    config: z.record(z.any()),
+    config: z.record(z.string(), z.any()),
   }),
 });
 

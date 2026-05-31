@@ -21,6 +21,8 @@ import { pinoHttp } from "pino-http";
 import { logger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/error.js";
 import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACHE_PREFIX } from "./utils/redis.js";
+import { getOpenApiDocumentation } from "./swagger.js";
+import swaggerUi from "swagger-ui-express";
 import { 
   validateRequest, 
   registerSchema, 
@@ -182,6 +184,13 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// --- API DOCUMENTATION ---
+const openApiDocument = getOpenApiDocumentation();
+app.get("/openapi.json", (req, res) => {
+  res.json(openApiDocument);
+});
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
 // --- AUTH ROUTES ---
 
 // Register
@@ -237,8 +246,8 @@ app.get("/datasets", authenticateToken as any, async (req: AuthRequest, res) => 
 });
 
 app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
+  const { id } = req.params as any;
   try {
-    const { id } = req.params as any;
     const dataset = await prisma.dataset.findUnique({
       where: { id },
     });
