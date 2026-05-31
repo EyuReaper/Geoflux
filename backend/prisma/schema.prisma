@@ -44,6 +44,8 @@ model Feature {
 
   @@index([datasetId])
   @@index([geometry], map: "feature_geometry_idx", type: Gist)
+  @@index([datasetId, value])
+  @@index([datasetId, category])
 }
 
 model Workspace {

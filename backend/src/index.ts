@@ -363,7 +363,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
       WITH mvt_geom AS (
         SELECT
           ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
-          properties || jsonb_build_object('value', "value", 'category', "category") as props
+          jsonb_build_object('value', "value", 'category', "category") || properties as props
         FROM "Feature"
         WHERE "datasetId" = $4
           AND geometry && ST_TileEnvelope($1, $2, $3)
