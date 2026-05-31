@@ -134,10 +134,18 @@ exports.Prisma.DatasetScalarFieldEnum = {
   name: 'name',
   color: 'color',
   type: 'type',
-  data: 'data',
   userId: 'userId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
+};
+
+exports.Prisma.FeatureScalarFieldEnum = {
+  id: 'id',
+  datasetId: 'datasetId',
+  properties: 'properties',
+  value: 'value',
+  category: 'category',
+  createdAt: 'createdAt'
 };
 
 exports.Prisma.WorkspaceScalarFieldEnum = {
@@ -179,6 +187,7 @@ exports.Prisma.JsonNullValueFilter = {
 exports.Prisma.ModelName = {
   User: 'User',
   Dataset: 'Dataset',
+  Feature: 'Feature',
   Workspace: 'Workspace'
 };
 

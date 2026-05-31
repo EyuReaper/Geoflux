@@ -12,9 +12,12 @@ export const validateRequest = (schema: z.ZodObject<any> | z.ZodTypeAny) => {
         query: req.query,
         params: req.params,
       }) as any;
-      req.body = validated.body;
-      req.query = validated.query;
-      req.params = validated.params;
+      
+      // Use Object.defineProperty to override if they are read-only
+      Object.defineProperty(req, 'body', { value: validated.body, configurable: true });
+      Object.defineProperty(req, 'query', { value: validated.query, configurable: true });
+      Object.defineProperty(req, 'params', { value: validated.params, configurable: true });
+      
       next();
     } catch (error) {
       if (error instanceof z.ZodError) {

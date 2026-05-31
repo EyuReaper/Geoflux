@@ -180,8 +180,33 @@ const tileLimiter = rateLimit({
 
 app.use(generalLimiter);
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+app.get("/health", async (req, res) => {
+  let dbStatus = "up";
+  let redisStatus = "up";
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (err) {
+    logger.error({ err }, "Health check: Database down");
+    dbStatus = "down";
+  }
+
+  try {
+    await redis.ping();
+  } catch (err) {
+    logger.error({ err }, "Health check: Redis down");
+    redisStatus = "down";
+  }
+
+  const status = dbStatus === "up" && redisStatus === "up" ? "ok" : "error";
+  res.status(status === "ok" ? 200 : 503).json({
+    status,
+    timestamp: new Date().toISOString(),
+    services: {
+      database: dbStatus,
+      redis: redisStatus,
+    },
+  });
 });
 
 // --- API DOCUMENTATION ---
@@ -394,7 +419,7 @@ app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSch
         name,
         color: color || "#06b6d4",
         type: type || "points",
-        userId: req.user?.id,
+        user: req.user?.id ? { connect: { id: req.user.id } } : undefined,
       },
     });
 
@@ -768,7 +793,11 @@ io.on("connection", (socket) => {
 
 app.use(errorHandler);
 
-httpServer.listen(port, () => {
-  logger.info(`Backend running at http://localhost:${port}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  httpServer.listen(port, () => {
+    logger.info(`Backend running at http://localhost:${port}`);
+  });
+}
+
+export { app, prisma, redis };
 
