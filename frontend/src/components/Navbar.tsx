@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore'
 import { AuthModal } from './AuthModal'
 
 const Navbar = () => {
-  const { isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace, workspaces, toggleWorkspaceSharing } = useStore()
+  const { isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace } = useStore()
   const [showAuth, setShowAuth] = useState(false)
 
   const handleSave = () => {

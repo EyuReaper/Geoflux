@@ -182,20 +182,37 @@ describe('GeoFlux Store', () => {
 
     await useStore.getState().performSpatialAggregation()
 
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/spatial-aggregate'), expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/spatial-tool'), expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({
-        targetGridType: 'hex',
-        gridResolution: 4,
-        aggregationField: 'val',
-        persist: true,
-        name: 'Saved Hex Grid'
-      })
+      body: expect.stringContaining('"customName":"Saved Hex Grid"')
     }))
 
     const state = useStore.getState()
     expect(state.datasets).toHaveLength(2)
     expect(state.datasets.find(d => d.id === 'agg-saved-id')).toBeDefined()
     expect(state.activeDatasetId).toBe('agg-saved-id')
+  })
+
+  it('should focus the map on a geocoded region', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{
+        display_name: 'Addis Ababa, Ethiopia',
+        boundingbox: ['8.84', '9.13', '38.65', '38.90']
+      }]
+    } as Response)
+
+    await useStore.getState().focusRegion('Addis Ababa')
+
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('nominatim.openstreetmap.org/search'))
+    expect(useStore.getState().regionFocus).toEqual({
+      label: 'Addis Ababa, Ethiopia',
+      bounds: {
+        sw: [38.65, 8.84],
+        ne: [38.90, 9.13],
+      }
+    })
+    expect(useStore.getState().isRegionLoading).toBe(false)
+    expect(useStore.getState().regionError).toBeNull()
   })
 })

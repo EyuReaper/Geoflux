@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from "react";
+import React, { useRef, useMemo, useState } from "react";
 import {
   Upload,
   X,
@@ -66,14 +66,20 @@ const Sidebar = () => {
     setFieldMapping,
     datasets,
     activeDatasetId,
+    regionFocus,
+    isRegionLoading,
+    regionError,
     addDataset,
     removeDataset,
     toggleDatasetVisibility,
     setActiveDataset,
+    focusRegion,
+    clearRegionFocus,
     comparisonDatasetIds,
     toggleComparisonDataset,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [regionQuery, setRegionQuery] = useState("");
 
   const categories = useMemo(() => {
     const cats = new Set<string>();
@@ -154,6 +160,11 @@ const Sidebar = () => {
     a.download = `geoflux_export_${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleRegionSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await focusRegion(regionQuery);
   };
 
   return (
@@ -340,6 +351,70 @@ const Sidebar = () => {
 
         {datasets.length > 0 && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="space-y-4 mb-8">
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
+                <Search size={12} className="text-cyan-500" />
+                Region Focus
+              </h2>
+
+              <form onSubmit={handleRegionSubmit} className="space-y-3">
+                <div className="relative group">
+                  <Search
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-cyan-400 transition-colors"
+                  />
+                  <input
+                    type="text"
+                    placeholder="City, state, country..."
+                    value={regionQuery}
+                    onChange={(e) => setRegionQuery(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 text-xs focus:outline-none focus:border-cyan-500/50 transition-all placeholder:text-white/10"
+                  />
+                </div>
+
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <button
+                    type="submit"
+                    disabled={isRegionLoading}
+                    className={cn(
+                      "flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                      isRegionLoading
+                        ? "bg-white/5 text-white/20 cursor-not-allowed"
+                        : "bg-cyan-500 text-black hover:bg-cyan-400 shadow-lg shadow-cyan-500/10",
+                    )}
+                  >
+                    {isRegionLoading ? "Locating" : "Focus Region"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearRegionFocus}
+                    disabled={!regionFocus && !regionError}
+                    className="px-3 rounded-xl bg-white/5 border border-white/10 text-white/30 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:text-white/30 disabled:hover:bg-white/5 transition-all"
+                    title="Clear Region Focus"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </form>
+
+              {regionFocus && (
+                <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-1">
+                    Active Region
+                  </div>
+                  <div className="text-[11px] text-white/70 leading-relaxed line-clamp-2">
+                    {regionFocus.label}
+                  </div>
+                </div>
+              )}
+
+              {regionError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">
+                  {regionError}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-4">
               <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
                 <Settings2 size={12} className="text-cyan-500" />

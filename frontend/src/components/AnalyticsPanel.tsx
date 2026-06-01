@@ -3,7 +3,7 @@ import { BarChart3, TrendingUp, Activity, PieChart, FileJson, FileSpreadsheet, C
 import { useStore } from '../store/useStore'
 
 const AnalyticsPanel = () => {
-  const { viewportFilteredData, isRightPanelOpen, activeDatasetId, datasets, comparisonDatasetIds } = useStore()
+  const { viewportFilteredData, isRightPanelOpen, activeDatasetId, datasets, comparisonDatasetIds, regionFocus } = useStore()
 
   const activeDataset = useMemo(() => {
     return datasets.find(d => d.id === activeDatasetId)
@@ -169,7 +169,9 @@ const AnalyticsPanel = () => {
             <BarChart3 size={12} className="text-cyan-500" />
             Intelligence Hub
           </h2>
-          <div className="text-[9px] text-white/20 font-medium uppercase tracking-widest">Real-time viewport analytics</div>
+          <div className="text-[9px] text-white/20 font-medium uppercase tracking-widest">
+            {regionFocus ? 'Focused region analytics' : 'Real-time viewport analytics'}
+          </div>
         </div>
         <div className="flex gap-2">
           <button 
@@ -261,6 +263,17 @@ const AnalyticsPanel = () => {
 
       {stats ? (
         <div className="space-y-6">
+          {regionFocus && (
+            <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 animate-in zoom-in-95">
+              <div className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-1">
+                Region Calculation
+              </div>
+              <div className="text-[11px] text-white/70 leading-relaxed line-clamp-2">
+                {regionFocus.label}
+              </div>
+            </div>
+          )}
+
           {/* Spatial Analysis Header */}
           {analysisType && (
             <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 animate-in zoom-in-95">
@@ -439,7 +452,9 @@ const AnalyticsPanel = () => {
         <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white/5 border border-dashed border-white/10 rounded-2xl">
           <Activity size={32} className="text-white/10 mb-4" />
           <p className="text-xs text-white/30 leading-relaxed font-medium">
-            Zoom in or adjust filters to generate real-time analytics for the current viewport.
+            {regionFocus
+              ? 'No rendered features are available inside the focused region. Adjust filters or wait for tiles to finish loading.'
+              : 'Zoom in or adjust filters to generate real-time analytics for the current viewport.'}
           </p>
         </div>
       )}

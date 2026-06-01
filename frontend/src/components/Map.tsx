@@ -52,7 +52,7 @@ const Map = () => {
   const { 
     mapState, setMapState, activeModes, mapStyle, 
     mapStyleType, setSelectedEntity, datasets, filters, 
-    timeline, setViewportFilteredData, applySnapshot
+    timeline, setViewportFilteredData, applySnapshot, regionFocus
   } = useStore()
 
   // Apply initial snapshot if present in URL
@@ -82,17 +82,19 @@ const Map = () => {
     const newLayerIds = new Set<string>()
 
     // Build MapLibre filter
-    const mapLibreFilter: MapFilter = ['all']
-    mapLibreFilter.push(['>=', ['get', 'value'], filters.minValue])
-    mapLibreFilter.push(['<=', ['get', 'value'], filters.maxValue])
+    const mapLibreFilterParts: unknown[] = ['all']
+    mapLibreFilterParts.push(['>=', ['get', 'value'], filters.minValue])
+    mapLibreFilterParts.push(['<=', ['get', 'value'], filters.maxValue])
     
     if (filters.categories.length > 0) {
-      mapLibreFilter.push(['in', ['get', 'category'], ['literal', filters.categories]])
+      mapLibreFilterParts.push(['in', ['get', 'category'], ['literal', filters.categories]])
     }
     
     if (timeline.startTime !== timeline.endTime) {
-      mapLibreFilter.push(['<=', ['get', 'timestamp'], timeline.currentTime])
+      mapLibreFilterParts.push(['<=', ['get', 'timestamp'], timeline.currentTime])
     }
+
+    const mapLibreFilter = mapLibreFilterParts as MapFilter
 
     visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
@@ -156,7 +158,7 @@ const Map = () => {
             maxzoom: 14
           })
         } else {
-          const source = existingSource as maplibregl.VectorSource
+          const source = existingSource as maplibregl.VectorTileSource & { tiles?: string[] }
           if (!('tiles' in source) || (source.tiles && source.tiles[0] !== tileUrl)) {
             mapInstance.removeSource(sourceId)
             mapInstance.addSource(sourceId, {
@@ -534,6 +536,17 @@ const Map = () => {
     if (!mapInstance || !isLoaded) return
     mapInstance.setStyle(STYLES[mapStyleType])
   }, [mapStyleType, isLoaded])
+
+  useEffect(() => {
+    const mapInstance = map.current
+    if (!mapInstance || !isLoaded || !regionFocus) return
+
+    mapInstance.fitBounds([regionFocus.bounds.sw, regionFocus.bounds.ne], {
+      padding: 72,
+      duration: 900,
+      maxZoom: 13,
+    })
+  }, [regionFocus, isLoaded])
 
   useEffect(() => {
     updateLayers()

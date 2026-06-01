@@ -119,6 +119,14 @@ export type MapState = {
   };
 };
 
+export type RegionFocus = {
+  label: string;
+  bounds: {
+    sw: [number, number]; // [lng, lat]
+    ne: [number, number];
+  };
+};
+
 export type DataStats = {
   min: number;
   max: number;

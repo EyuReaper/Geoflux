@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { io, type Socket } from 'socket.io-client'
-import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialToolConfig } from '../types/index'
+import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialToolConfig, RegionFocus } from '../types/index'
 
 interface GeoFluxState {
   // Auth
@@ -36,6 +36,9 @@ interface GeoFluxState {
   mapStyleType: 'dark' | 'light'
   filters: FilterState
   timeline: TimelineState
+  regionFocus: RegionFocus | null
+  isRegionLoading: boolean
+  regionError: string | null
 
   // Spatial Aggregation
   spatialAggregationConfig: SpatialToolConfig
@@ -74,6 +77,8 @@ interface GeoFluxState {
   setMapStyleType: (type: 'dark' | 'light') => void
   setFilters: (filters: Partial<FilterState>) => void
   setTimeline: (timeline: Partial<TimelineState>) => void
+  focusRegion: (query: string) => Promise<void>
+  clearRegionFocus: () => void
   toggleSidebar: () => void
   toggleRightPanel: () => void
   toggleLive: () => void
@@ -163,6 +168,9 @@ const initialState = {
     loopMode: 'loop' as const,
     direction: 1 as const,
   },
+  regionFocus: null as RegionFocus | null,
+  isRegionLoading: false,
+  regionError: null as string | null,
   spatialAggregationConfig: {
     type: 'aggregation' as const,
     sourceDatasetId: null,
@@ -189,6 +197,11 @@ const LOCAL_DATASET_PREFIX = 'local-'
 
 const toTimestampValue = (value: unknown) => value as DataPoint['timestamp']
 const isLocalDatasetId = (id: string) => id.startsWith(LOCAL_DATASET_PREFIX)
+
+type NominatimResult = {
+  display_name?: string
+  boundingbox?: [string, string, string, string]
+}
 
 const buildMappedData = (
   rawData: Record<string, unknown>[],
@@ -816,6 +829,57 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   setTimeline: (newTimeline) => {
     set((state) => ({ timeline: { ...state.timeline, ...newTimeline } }))
     get().setFilters({})
+  },
+
+  focusRegion: async (query) => {
+    const regionQuery = query.trim()
+    if (!regionQuery) {
+      set({ regionError: 'Enter a region name before focusing the map.' })
+      return
+    }
+
+    set({ isRegionLoading: true, regionError: null })
+
+    try {
+      const params = new URLSearchParams({
+        format: 'json',
+        limit: '1',
+        polygon_geojson: '0',
+        q: regionQuery,
+      })
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
+      if (!response.ok) throw new Error('Region lookup failed')
+
+      const results = await response.json() as NominatimResult[]
+      const match = results[0]
+      if (!match?.boundingbox) throw new Error('No matching region found')
+
+      const [south, north, west, east] = match.boundingbox.map(Number)
+      if (![south, north, west, east].every(Number.isFinite)) {
+        throw new Error('Region bounds were invalid')
+      }
+
+      set({
+        regionFocus: {
+          label: match.display_name || regionQuery,
+          bounds: {
+            sw: [west, south],
+            ne: [east, north],
+          },
+        },
+        isRegionLoading: false,
+        regionError: null,
+      })
+    } catch (err) {
+      set({
+        isRegionLoading: false,
+        regionError: err instanceof Error ? err.message : 'Region lookup failed',
+      })
+    }
+  },
+
+  clearRegionFocus: () => {
+    set({ regionFocus: null, regionError: null })
   },
 
   togglePlayback: () => set((state) => ({
