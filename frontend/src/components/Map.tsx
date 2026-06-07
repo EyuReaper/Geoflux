@@ -73,6 +73,11 @@ const Map = () => {
     layers: new Set()
   })
 
+  // Use refs to store previous values for efficient comparison
+  const prevFilters = useRef(filters)
+  const prevActiveModes = useRef(activeModes)
+  const prevMapStyle = useRef(mapStyle)
+
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
     if (!mapInstance || !mapInstance.isStyleLoaded()) return
@@ -81,20 +86,16 @@ const Map = () => {
     const newSourceIds = new Set<string>()
     const newLayerIds = new Set<string>()
 
-    // Build MapLibre filter
-    const mapLibreFilterParts: unknown[] = ['all']
-    mapLibreFilterParts.push(['>=', ['get', 'value'], filters.minValue])
-    mapLibreFilterParts.push(['<=', ['get', 'value'], filters.maxValue])
-    
-    if (filters.categories.length > 0) {
-      mapLibreFilterParts.push(['in', ['get', 'category'], ['literal', filters.categories]])
-    }
-    
-    if (timeline.startTime !== timeline.endTime) {
-      mapLibreFilterParts.push(['<=', ['get', 'timestamp'], timeline.currentTime])
-    }
+    // Determine if structure needs update (sources or layers added/removed)
+    // Frequent updates (filters/timeline) should only update paint/filter properties
+    const filtersChanged = JSON.stringify(prevFilters.current) !== JSON.stringify(filters)
+    const modesChanged = JSON.stringify(prevActiveModes.current) !== JSON.stringify(activeModes)
+    const styleChanged = JSON.stringify(prevMapStyle.current) !== JSON.stringify(mapStyle)
 
-    const mapLibreFilter = mapLibreFilterParts as MapFilter
+    // Update refs
+    prevFilters.current = filters
+    prevActiveModes.current = activeModes
+    prevMapStyle.current = mapStyle
 
     visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
@@ -104,36 +105,23 @@ const Map = () => {
       const isGridDataset = ds.type === 'grid'
       const sourceLayer = (isLocalData || isAggregated) ? undefined : 'geoflux-layer'
 
+      // Source Management
       if (isAggregated) {
         const existingSource = mapInstance.getSource(sourceId)
         if (!existingSource) {
-          mapInstance.addSource(sourceId, {
-            type: 'geojson',
-            data: ds.aggregatedGeoJson!
-          })
+          mapInstance.addSource(sourceId, { type: 'geojson', data: ds.aggregatedGeoJson! })
         } else if ('setData' in existingSource) {
-          ;(existingSource as maplibregl.GeoJSONSource).setData(ds.aggregatedGeoJson!)
+          (existingSource as maplibregl.GeoJSONSource).setData(ds.aggregatedGeoJson!)
         }
       } else if (isLocalData) {
         const geoJson = buildGeoJson(ds.data)
         const existingSource = mapInstance.getSource(sourceId)
-
         if (!existingSource) {
-          mapInstance.addSource(sourceId, {
-            type: 'geojson',
-            data: geoJson
-          })
+          mapInstance.addSource(sourceId, { type: 'geojson', data: geoJson })
         } else if ('setData' in existingSource) {
-          ;(existingSource as maplibregl.GeoJSONSource).setData(geoJson)
-        } else {
-          mapInstance.removeSource(sourceId)
-          mapInstance.addSource(sourceId, {
-            type: 'geojson',
-            data: geoJson
-          })
+          (existingSource as maplibregl.GeoJSONSource).setData(geoJson)
         }
       } else {
-        // Build MVT URL with server-side filters
         const resParam = mapStyle.gridType === 'hex' ? mapStyle.gridResolution : (1 / Math.pow(2, mapStyle.gridResolution - 2));
         const params = new URLSearchParams({
           min: filters.minValue.toString(),
@@ -152,59 +140,41 @@ const Map = () => {
         const existingSource = mapInstance.getSource(sourceId)
 
         if (!existingSource) {
-          mapInstance.addSource(sourceId, {
-            type: 'vector',
-            tiles: [tileUrl],
-            maxzoom: 14
-          })
+          mapInstance.addSource(sourceId, { type: 'vector', tiles: [tileUrl], maxzoom: 14 })
         } else {
           const source = existingSource as maplibregl.VectorTileSource & { tiles?: string[] }
-          if (!('tiles' in source) || (source.tiles && source.tiles[0] !== tileUrl)) {
-            mapInstance.removeSource(sourceId)
-            mapInstance.addSource(sourceId, {
-              type: 'vector',
-              tiles: [tileUrl],
-              maxzoom: 14
-            })
+          // Only update source if essential params changed (avoid flicker)
+          if (filtersChanged || modesChanged) {
+             if (!('tiles' in source) || (source.tiles && source.tiles[0] !== tileUrl)) {
+              mapInstance.removeSource(sourceId)
+              mapInstance.addSource(sourceId, { type: 'vector', tiles: [tileUrl], maxzoom: 14 })
+            }
           }
         }
       }
 
-      // 1. Heatmap Layer
+      // Layer Filter & Style Update
+      const mapLibreFilterParts: unknown[] = ['all']
+      mapLibreFilterParts.push(['>=', ['get', 'value'], filters.minValue])
+      mapLibreFilterParts.push(['<=', ['get', 'value'], filters.maxValue])
+      if (filters.categories.length > 0) mapLibreFilterParts.push(['in', ['get', 'category'], ['literal', filters.categories]])
+      if (timeline.startTime !== timeline.endTime) mapLibreFilterParts.push(['<=', ['get', 'timestamp'], timeline.currentTime])
+      const mapLibreFilter = mapLibreFilterParts as MapFilter
+
+      // Heatmap Layer
       if (activeModes.includes('heatmap') && !isGridDataset) {
         const layerId = `geoflux-heatmap-${ds.id}`
         newLayerIds.add(layerId)
         if (!mapInstance.getLayer(layerId)) {
           mapInstance.addLayer({
-            id: layerId,
-            type: 'heatmap',
-            source: sourceId,
+            id: layerId, type: 'heatmap', source: sourceId,
             ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
             maxzoom: 14,
             paint: {
-              'heatmap-weight': [
-                'interpolate', ['linear'], ['get', 'value'],
-                0, 0,
-                100, 1
-              ],
-              'heatmap-intensity': [
-                'interpolate', ['linear'], ['zoom'],
-                0, 1,
-                14, 3 * mapStyle.heatmapIntensity
-              ],
-              'heatmap-color': [
-                'interpolate', ['linear'], ['heatmap-density'],
-                0, 'rgba(0,0,0,0)',
-                0.2, mapStyle.colorScale[0],
-                0.4, mapStyle.colorScale[1],
-                0.6, mapStyle.colorScale[2],
-                1.0, mapStyle.colorScale[3]
-              ],
-              'heatmap-radius': [
-                'interpolate', ['linear'], ['zoom'],
-                0, 2,
-                14, mapStyle.heatmapRadius
-              ],
+              'heatmap-weight': ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 1],
+              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 14, 3 * mapStyle.heatmapIntensity],
+              'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,0,0,0)', 0.2, mapStyle.colorScale[0], 0.4, mapStyle.colorScale[1], 0.6, mapStyle.colorScale[2], 1.0, mapStyle.colorScale[3]],
+              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 14, mapStyle.heatmapRadius],
               'heatmap-opacity': mapStyle.opacity
             }
           })
@@ -212,169 +182,76 @@ const Map = () => {
         mapInstance.setFilter(layerId, mapLibreFilter)
         mapInstance.setPaintProperty(layerId, 'heatmap-intensity', mapStyle.heatmapIntensity)
         mapInstance.setPaintProperty(layerId, 'heatmap-radius', mapStyle.heatmapRadius)
+        mapInstance.setPaintProperty(layerId, 'heatmap-opacity', mapStyle.opacity)
       }
 
-      // 2. 3D Extrusion / Area Layer
+      // 3D/Grid Layers
       if (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth')) {
         const layerId = `geoflux-area-${ds.id}`
-        newLayerIds.add(layerId)
-        
         if (mapStyle.is3D) {
-          // Use fill-extrusion for 3D
-          if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
           const extrusionLayerId = `${layerId}-3d`
           newLayerIds.add(extrusionLayerId)
-
           if (!mapInstance.getLayer(extrusionLayerId)) {
             mapInstance.addLayer({
-              id: extrusionLayerId,
-              type: 'fill-extrusion',
-              source: sourceId,
+              id: extrusionLayerId, type: 'fill-extrusion', source: sourceId,
               ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
               paint: {}
             })
           }
-          
           mapInstance.setFilter(extrusionLayerId, mapLibreFilter)
-          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-height', [
-            'interpolate', ['linear'], ['get', 'value'],
-            0, 0,
-            100, 100 * mapStyle.extrusionScale
-          ])
-          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-color', [
-            'interpolate', ['linear'], ['get', 'value'],
-            0, 'rgba(0,0,0,0)',
-            10, mapStyle.colorScale[0],
-            30, mapStyle.colorScale[1],
-            60, mapStyle.colorScale[2],
-            100, mapStyle.colorScale[3]
-          ])
+          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-height', ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 100 * mapStyle.extrusionScale])
+          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-color', ['interpolate', ['linear'], ['get', 'value'], 0, 'rgba(0,0,0,0)', 10, mapStyle.colorScale[0], 30, mapStyle.colorScale[1], 60, mapStyle.colorScale[2], 100, mapStyle.colorScale[3]])
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-opacity', mapStyle.opacity)
-          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-base', 0)
         } else {
-          // Use fill for 2D Grid
-          if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
           const fillLayerId = `${layerId}-fill`
           newLayerIds.add(fillLayerId)
-
           if (!mapInstance.getLayer(fillLayerId)) {
             mapInstance.addLayer({
-              id: fillLayerId,
-              type: 'fill',
-              source: sourceId,
+              id: fillLayerId, type: 'fill', source: sourceId,
               ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-              paint: {
-                'fill-outline-color': 'rgba(255,255,255,0.1)'
-              }
+              paint: { 'fill-outline-color': 'rgba(255,255,255,0.1)' }
             })
           }
-          
           mapInstance.setFilter(fillLayerId, mapLibreFilter)
-          mapInstance.setPaintProperty(fillLayerId, 'fill-color', [
-            'interpolate', ['linear'], ['get', 'value'],
-            0, 'rgba(0,0,0,0)',
-            10, mapStyle.colorScale[0],
-            30, mapStyle.colorScale[1],
-            60, mapStyle.colorScale[2],
-            100, mapStyle.colorScale[3]
-          ])
+          mapInstance.setPaintProperty(fillLayerId, 'fill-color', ['interpolate', ['linear'], ['get', 'value'], 0, 'rgba(0,0,0,0)', 10, mapStyle.colorScale[0], 30, mapStyle.colorScale[1], 60, mapStyle.colorScale[2], 100, mapStyle.colorScale[3]])
           mapInstance.setPaintProperty(fillLayerId, 'fill-opacity', mapStyle.opacity)
         }
       }
 
-      // 3. Markers Layer
+      // Markers Layer
       if (activeModes.includes('markers') && !isGridDataset) {
         const layerId = `geoflux-markers-${ds.id}`
         const pulseLayerId = `${layerId}-pulse`
         newLayerIds.add(layerId)
         newLayerIds.add(pulseLayerId)
 
-        // Pulse Layer (Bottom)
         if (!mapInstance.getLayer(pulseLayerId)) {
           mapInstance.addLayer({
-            id: pulseLayerId,
-            type: 'circle',
-            source: sourceId,
+            id: pulseLayerId, type: 'circle', source: sourceId,
             ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-            paint: {
-              'circle-radius': [
-                'interpolate', ['linear'], ['zoom'],
-                5, mapStyle.pointSize * 2,
-                15, mapStyle.pointSize * 4
-              ],
-              'circle-color': ds.color,
-              'circle-opacity': 0.2,
-              'circle-stroke-width': 2,
-              'circle-stroke-color': ds.color,
-              'circle-stroke-opacity': 0.1
-            }
+            paint: { 'circle-radius': mapStyle.pointSize * 2, 'circle-color': ds.color, 'circle-opacity': 0.2, 'circle-stroke-width': 2, 'circle-stroke-color': ds.color, 'circle-stroke-opacity': 0.1 }
           })
         }
-
-        // Main Marker Layer (Top)
         if (!mapInstance.getLayer(layerId)) {
-            mapInstance.addLayer({
-              id: layerId,
-              type: 'circle',
-              source: sourceId,
-              ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-              paint: {
-              'circle-stroke-width': 1,
-              'circle-stroke-color': '#fff',
-              'circle-stroke-opacity': 0.5
-            }
+          mapInstance.addLayer({
+            id: layerId, type: 'circle', source: sourceId,
+            ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+            paint: { 'circle-stroke-width': 1, 'circle-stroke-color': '#fff', 'circle-stroke-opacity': 0.5 }
           })
         }
-        
         mapInstance.setFilter(layerId, mapLibreFilter)
         mapInstance.setFilter(pulseLayerId, mapLibreFilter)
-
-        mapInstance.setPaintProperty(layerId, 'circle-radius', [
-          'interpolate', ['linear'], ['zoom'],
-          5, mapStyle.pointSize,
-          15, mapStyle.pointSize * 2
-        ])
+        mapInstance.setPaintProperty(layerId, 'circle-radius', ['interpolate', ['linear'], ['zoom'], 5, mapStyle.pointSize, 15, mapStyle.pointSize * 2])
         mapInstance.setPaintProperty(layerId, 'circle-color', ds.color)
         mapInstance.setPaintProperty(layerId, 'circle-opacity', mapStyle.opacity)
-
-        // Marker Pulse Animation
-        const step = (timestamp: number) => {
-          if (!map.current || !map.current.getLayer(pulseLayerId)) return
-          const duration = 2000
-          const progress = (timestamp % duration) / duration
-          const opacity = 0.4 * (1 - progress)
-          const radiusMult = 1 + progress * 1.5
-          
-          map.current.setPaintProperty(pulseLayerId, 'circle-radius', [
-            'interpolate', ['linear'], ['zoom'],
-            5, mapStyle.pointSize * radiusMult,
-            15, mapStyle.pointSize * 2 * radiusMult
-          ])
-          map.current.setPaintProperty(pulseLayerId, 'circle-opacity', opacity)
-          requestAnimationFrame(step)
-        }
-        requestAnimationFrame(step)
       }
     })
 
-    // Remove unused layers
-    activeResources.current.layers.forEach(layerId => {
-      if (!newLayerIds.has(layerId)) {
-        if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId)
-      }
-    })
-
-    // Remove unused sources
-    activeResources.current.sources.forEach(sourceId => {
-      if (!newSourceIds.has(sourceId)) {
-        // Must remove all layers using this source first (they should be in unused layers)
-        if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId)
-      }
-    })
-
+    // Clean up
+    activeResources.current.layers.forEach(id => { if (!newLayerIds.has(id) && mapInstance.getLayer(id)) mapInstance.removeLayer(id) })
+    activeResources.current.sources.forEach(id => { if (!newSourceIds.has(id) && mapInstance.getSource(id)) mapInstance.removeSource(id) })
     activeResources.current.layers = newLayerIds
     activeResources.current.sources = newSourceIds
-
   }, [activeModes, mapStyle, datasets, filters, timeline])
 
   useEffect(() => {

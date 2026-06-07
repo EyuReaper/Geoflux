@@ -364,12 +364,14 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
     if (!dataset) return res.status(404).send("Dataset not found");
 
     // Build the SQL query for MVT
-    // Note: ST_TileEnvelope(z, x, y) generates the bounding box for the tile
     let query = `
       WITH mvt_geom AS (
         SELECT
           ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
-          jsonb_build_object('value', "value", 'category', "category") || properties as props
+          CASE 
+            WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category")
+            ELSE jsonb_build_object('value', "value", 'category', "category") || properties 
+          END as props
         FROM "Feature"
         WHERE "datasetId" = $4
           AND geometry && ST_TileEnvelope($1, $2, $3)
@@ -431,22 +433,23 @@ app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSch
 
     // Ingest features into the Feature table
     if (Array.isArray(data) && data.length > 0) {
-      // Process in batches for performance
-      const BATCH_SIZE = 500;
+      const BATCH_SIZE = 1000;
       for (let i = 0; i < data.length; i += BATCH_SIZE) {
         const batch = data.slice(i, i + BATCH_SIZE);
         
-        await Promise.all(batch.map(async (item: any) => {
+        const values: any[] = [];
+        const placeholders: string[] = [];
+        
+        batch.forEach((item: any, idx: number) => {
+          const base = idx * 6;
           const id = crypto.randomUUID();
           const geometry = item.geometry || {
             type: "Point",
             coordinates: [item.lng, item.lat]
           };
           
-          // Use executeRaw for geometry insertion
-          await prisma.$executeRawUnsafe(
-            `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
-             VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326), $4, $5, $6)`,
+          placeholders.push(`($${base + 1}, $${base + 2}, ST_SetSRID(ST_GeomFromGeoJSON($${base + 3}), 4326), $${base + 4}, $${base + 5}, $${base + 6})`);
+          values.push(
             id,
             dataset.id,
             JSON.stringify(geometry),
@@ -454,7 +457,13 @@ app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSch
             item.value || null,
             item.category || null
           );
-        }));
+        });
+
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
+           VALUES ${placeholders.join(", ")}`,
+          ...values
+        );
       }
     }
 
@@ -521,69 +530,53 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
     const pointFC = turf.featureCollection(pointFeatures) as any;
 
     if (type === 'aggregation') {
-      const grid = new Map<string, { value: number; count: number; lat: number; lng: number; coords: [number, number][] }>();
+      // High-performance PostGIS Aggregation
+      const resolution = parseFloat(gridResolution as string);
+      const isHex = targetGridType === 'hex';
+      
+      const aggQuery = isHex ? `
+        WITH grid AS (
+          SELECT ST_HexagonGrid($1, geometry) as geom, "value", "properties"
+          FROM "Feature"
+          WHERE "datasetId" = $2
+        )
+        SELECT 
+          ST_AsGeoJSON(geom)::json as geometry,
+          SUM(COALESCE(("properties"->>$3)::numeric, "value", 0)) as value,
+          COUNT(*) as count
+        FROM grid
+        GROUP BY geom
+      ` : `
+        WITH grid AS (
+          SELECT ST_SquareGrid($1, geometry) as geom, "value", "properties"
+          FROM "Feature"
+          WHERE "datasetId" = $2
+        )
+        SELECT 
+          ST_AsGeoJSON(geom)::json as geometry,
+          SUM(COALESCE(("properties"->>$3)::numeric, "value", 0)) as value,
+          COUNT(*) as count
+        FROM grid
+        GROUP BY geom
+      `;
 
-      if (targetGridType === 'hex') {
-        const h3Resolution = Math.min(10, Math.max(3, Math.round(gridResolution) + 2)); 
+      // resolution for ST_HexagonGrid is in degrees if the CRS is 4326. 
+      // gridResolution 4 -> approx 0.1 degrees
+      const spatialRes = isHex ? (0.5 / Math.pow(2, resolution - 2)) : (1 / Math.pow(2, resolution - 2));
 
-        sourceData.forEach((d: any) => {
-          if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-          const h3Index = h3.latLngToCell(d.lat, d.lng, h3Resolution);
-          const existing = grid.get(h3Index) || { value: 0, count: 0, h3Index, lat: 0, lng: 0, coords: [] };
-          
-          if (existing.count === 0) {
-            const [lat, lng] = h3.cellToLatLng(h3Index);
-            existing.lat = lat;
-            existing.lng = lng;
-            existing.coords = h3.cellToBoundary(h3Index, true);
-          }
-          
-          const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
-                             ? d.metadata[aggregationField]
-                             : (d.value || 0);
-          existing.value += pointValue;
-          existing.count += 1;
-          grid.set(h3Index, existing);
-        });
-      } else {
-        const resolution = parseFloat(gridResolution as string);
-        sourceData.forEach((d: any) => {
-          if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
-          const latBin = Math.floor(d.lat / resolution) * resolution;
-          const lngBin = Math.floor(d.lng / resolution) * resolution;
-          const key = `${latBin},${lngBin}`;
-          
-          const existing = grid.get(key) || { value: 0, count: 0, lat: latBin, lng: lngBin, coords: [] };
-          if (existing.count === 0) {
-            existing.coords = [
-              [lngBin, latBin],
-              [lngBin + resolution, latBin],
-              [lngBin + resolution, latBin + resolution],
-              [lngBin, latBin + resolution],
-              [lngBin, latBin]
-            ];
-          }
-          
-          const pointValue = typeof aggregationField === 'string' && d.metadata && typeof d.metadata[aggregationField] === 'number'
-                             ? d.metadata[aggregationField]
-                             : (d.value || 0);
-          existing.value += pointValue;
-          existing.count += 1;
-          grid.set(key, existing);
-        });
-      }
+      const gridResults = await prisma.$queryRawUnsafe(aggQuery, spatialRes, sourceDatasetId, aggregationField || "");
 
       resultGeoJson = {
         type: "FeatureCollection",
-        features: Array.from(grid.values()).map(cell => ({
+        features: (gridResults as any[]).map(cell => ({
           type: "Feature",
-          geometry: { type: "Polygon", coordinates: [cell.coords] },
+          geometry: cell.geometry,
           properties: { 
-            value: cell.value, 
-            count: cell.count, 
-            avg: cell.count > 0 ? cell.value / cell.count : 0 
+            value: Number(cell.value), 
+            count: Number(cell.count), 
+            avg: Number(cell.count) > 0 ? Number(cell.value) / Number(cell.count) : 0 
           }
-        })) as any
+        }))
       };
     } else if (type === 'buffer') {
       const buffered = pointFeatures.map(p => {
@@ -645,14 +638,17 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
 
       // Persist features
       const features = resultGeoJson.features;
-      const BATCH_SIZE = 500;
+      const BATCH_SIZE = 1000;
       for (let i = 0; i < features.length; i += BATCH_SIZE) {
         const batch = features.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (f: any) => {
+        const values: any[] = [];
+        const placeholders: string[] = [];
+        
+        batch.forEach((f: any, idx: number) => {
+          const base = idx * 6;
           const id = crypto.randomUUID();
-          await prisma.$executeRawUnsafe(
-            `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
-             VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326), $4, $5, $6)`,
+          placeholders.push(`($${base + 1}, $${base + 2}, ST_SetSRID(ST_GeomFromGeoJSON($${base + 3}), 4326), $${base + 4}, $${base + 5}, $${base + 6})`);
+          values.push(
             id,
             newDataset.id,
             JSON.stringify(f.geometry),
@@ -660,7 +656,13 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
             f.properties?.value || null,
             f.properties?.category || null
           );
-        }));
+        });
+
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
+           VALUES ${placeholders.join(", ")}`,
+          ...values
+        );
       }
 
       return res.status(201).json(newDataset);
