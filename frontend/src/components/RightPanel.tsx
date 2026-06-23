@@ -284,7 +284,17 @@ const RightPanel = () => {
                 {['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316'].map(color => (
                   <button 
                     key={color}
-                    onClick={() => updateMapStyle({ pointColor: color })}
+                    onClick={() => {
+                      updateMapStyle({ 
+                        pointColor: color,
+                        colorScale: [
+                          `${color}22`, // Very transparent
+                          `${color}66`, // Semi transparent
+                          `${color}AA`, // Mostly opaque
+                          color         // Full opaque
+                        ]
+                      })
+                    }}
                     className={cn(
                       "w-8 h-8 rounded-full border-2 transition-transform hover:scale-110",
                       mapStyle.pointColor === color ? "border-white shadow-lg" : "border-transparent"

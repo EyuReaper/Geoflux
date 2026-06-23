@@ -77,6 +77,7 @@ const Sidebar = () => {
     clearRegionFocus,
     comparisonDatasetIds,
     toggleComparisonDataset,
+    exportDataset,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [regionQuery, setRegionQuery] = useState("");
@@ -128,39 +129,6 @@ const Sidebar = () => {
     }
   };
 
-  const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(filteredData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `geoflux_export_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportCSV = () => {
-    // Flatten metadata for CSV export
-    const csvData = filteredData.map((d) => ({
-      id: d.id,
-      lat: d.lat,
-      lng: d.lng,
-      value: d.value,
-      category: d.category,
-      timestamp: d.timestamp,
-      ...(typeof d.metadata === "object" ? d.metadata : {}),
-    }));
-
-    const csv = Papa.unparse(csvData);
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `geoflux_export_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleRegionSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -281,6 +249,16 @@ const Sidebar = () => {
                         title="Compare Dataset"
                       >
                         <GitCompare size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          exportDataset(ds.id, 'geojson');
+                        }}
+                        className="p-2 bg-white/5 hover:bg-white/10 text-white/20 hover:text-cyan-400 rounded-xl transition-all"
+                        title="Quick Export GeoJSON"
+                      >
+                        <Download size={14} />
                       </button>
                       <button
                         onClick={(e) => {
@@ -551,17 +529,17 @@ const Sidebar = () => {
               </h2>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={exportJSON}
+                  onClick={() => activeDatasetId && exportDataset(activeDatasetId, 'geojson')}
                   className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-white hover:bg-white/10 hover:border-white/10 transition-all duration-300 text-[10px] font-black uppercase tracking-widest group"
                 >
                   <FileJson
                     size={16}
                     className="text-cyan-500/50 group-hover:text-cyan-400 transition-colors"
                   />
-                  JSON
+                  JSON/GeoJSON
                 </button>
                 <button
-                  onClick={exportCSV}
+                  onClick={() => activeDatasetId && exportDataset(activeDatasetId, 'csv')}
                   className="flex items-center justify-center gap-2 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 text-white/40 hover:text-white hover:bg-white/10 hover:border-white/10 transition-all duration-300 text-[10px] font-black uppercase tracking-widest group"
                 >
                   <FileSpreadsheet

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Hexagon, Square, Play, Trash2, ChevronDown, CircleDot, Component, Layers, Pentagon, Sparkles } from 'lucide-react'
+import { Hexagon, Square, Play, Trash2, ChevronDown, CircleDot, Component, Layers, Pentagon, Sparkles, AlertCircle } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { SpatialToolType } from '../types'
@@ -12,7 +12,8 @@ const SpatialAnalysis = () => {
     performSpatialAggregation, 
     clearSpatialAggregation,
     aggregatedDatasetId,
-    isLoading
+    isLoading,
+    auth
   } = useStore()
 
   const [isExpanded, setIsExpanded] = useState(true)
@@ -37,6 +38,7 @@ const SpatialAnalysis = () => {
   }, [activeDataset])
 
   const handleRun = async () => {
+    if (!auth.isAuthenticated) return
     await performSpatialAggregation()
   }
 
@@ -234,32 +236,43 @@ const SpatialAnalysis = () => {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-2">
-            <button 
-              onClick={handleRun}
-              disabled={!spatialAggregationConfig.sourceDatasetId || isLoading}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
-                isLoading 
-                  ? "bg-white/5 text-white/20 cursor-not-allowed" 
-                  : "bg-orange-500 text-black hover:bg-orange-400 shadow-lg shadow-orange-500/20"
-              )}
-            >
-              {isLoading ? (
-                <div className="w-3 h-3 border-2 border-black/20 border-t-black rounded-full animate-spin" />
-              ) : <Play size={14} fill="currentColor" />}
-              {spatialAggregationConfig.persist ? 'Run & Save' : 'Run Analysis'}
-            </button>
-            
-            {aggregatedDatasetId && (
-              <button 
-                onClick={clearSpatialAggregation}
-                className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-all"
-                title="Clear Results"
-              >
-                <Trash2 size={14} />
-              </button>
+          <div className="flex flex-col gap-3 pt-2">
+            {!auth.isAuthenticated && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2">
+                <AlertCircle size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-[10px] text-amber-200/60 leading-tight">
+                  Authentication required for backend spatial analysis. Please login to use these tools.
+                </p>
+              </div>
             )}
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={handleRun}
+                disabled={!spatialAggregationConfig.sourceDatasetId || isLoading || !auth.isAuthenticated}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
+                  (isLoading || !auth.isAuthenticated) 
+                    ? "bg-white/5 text-white/20 cursor-not-allowed" 
+                    : "bg-orange-500 text-black hover:bg-orange-400 shadow-lg shadow-orange-500/20"
+                )}
+              >
+                {isLoading ? (
+                  <div className="w-3 h-3 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+                ) : <Play size={14} fill="currentColor" />}
+                {spatialAggregationConfig.persist ? 'Run & Save' : 'Run Analysis'}
+              </button>
+              
+              {aggregatedDatasetId && (
+                <button 
+                  onClick={clearSpatialAggregation}
+                  className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-all"
+                  title="Clear Results"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

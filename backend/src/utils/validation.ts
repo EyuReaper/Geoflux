@@ -98,6 +98,8 @@ export const tileParamsSchema = z.object({
     cats: z.string().optional().transform(v => v ? v.split(',').filter(Boolean) : []),
     search: z.string().optional().transform(v => v ? v.toLowerCase() : ""),
     mode: z.string().optional(),
+    gridType: z.enum(["hex", "square"]).optional(),
+    res: z.string().optional().transform(v => v ? parseFloat(v) : undefined),
   }),
 });
 

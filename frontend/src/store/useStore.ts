@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { io, type Socket } from 'socket.io-client'
+import Papa from 'papaparse'
 import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialToolConfig, RegionFocus } from '../types/index'
 
 interface GeoFluxState {
@@ -55,6 +56,7 @@ interface GeoFluxState {
   loadWorkspace: (id: string) => Promise<void>
   saveWorkspace: (name: string) => Promise<void>
   toggleWorkspaceSharing: (id: string, isPublic: boolean) => Promise<void>
+  exportDataset: (id: string, format: 'geojson' | 'csv' | 'shp') => Promise<void>
   addDataset: (name: string, rawData: Record<string, unknown>[]) => void
   removeDataset: (id: string) => void
   toggleDatasetVisibility: (id: string) => void
@@ -636,6 +638,75 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       }
     } else {
       set({ activeDatasetId: null, rawData: [], availableFields: [] })
+    }
+  },
+
+  exportDataset: async (id, format) => {
+    const { token } = get().auth
+    const dataset = get().datasets.find(d => d.id === id)
+    if (!dataset) return
+
+    set({ isLoading: true, error: null })
+    try {
+      if (id.startsWith('local-')) {
+        const localData = dataset.data
+        if (format === 'geojson') {
+          const geojson = {
+            type: 'FeatureCollection',
+            features: localData.map(d => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+              properties: { value: d.value, category: d.category, ...d.metadata }
+            }))
+          }
+          const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `${dataset.name.replace(/[^a-zA-Z0-9]/g, "_")}.geojson`
+          a.click()
+          URL.revokeObjectURL(url)
+        } else if (format === 'csv') {
+          const csvData = localData.map(d => ({
+            id: d.id,
+            lat: d.lat,
+            lng: d.lng,
+            value: d.value,
+            category: d.category,
+            ...(typeof d.metadata === 'object' ? d.metadata : {})
+          }))
+          const csv = Papa.unparse(csvData)
+          const blob = new Blob([csv], { type: 'text/csv' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `${dataset.name.replace(/[^a-zA-Z0-9]/g, "_")}.csv`
+          a.click()
+          URL.revokeObjectURL(url)
+        }
+      } else if (token) {
+        const response = await fetch(`${API_URL}/datasets/${id}/export?format=${format}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!response.ok) throw new Error('Failed to export dataset from server')
+        
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const filenameHeader = response.headers.get('Content-Disposition')
+        let filename = `${dataset.name.replace(/[^a-zA-Z0-9]/g, "_")}_export.${format}`
+        if (filenameHeader) {
+          const filenameMatch = filenameHeader.match(/filename="?([^"]+)"?/)
+          if (filenameMatch) filename = filenameMatch[1]
+        }
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      set({ isLoading: false })
+    } catch (err) {
+      set({ error: (err as Error).message, isLoading: false })
     }
   },
 

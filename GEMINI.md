@@ -58,12 +58,6 @@ npx prisma migrate dev
 npm run dev
 ```
 
-## Next Steps
-1. **Data Persistence:** Implement API endpoints (`POST /datasets`, `GET /datasets`) to move from in-memory to database storage.
-2. **Backend/Frontend Handshake:** Replace the `loadDemoData` mock in the frontend with real API calls to the backend.
-3. **Real-time Engine:** Implement WebSockets (Socket.io) to replace the frontend "simulation" with real-time server-side data feeds.
-4. **Tiled Visualization:** Develop a vector tile server (MVT) on the backend to support datasets with millions of points.
-5. **Authentication:** Add secure user management to allow users to save and share their visualization workspaces.
 
 ## Development Conventions
 
@@ -86,3 +80,32 @@ npm run dev
 - Maintain strict type safety.
 - Define new data structures in `src/types/index.ts`.
 - Avoid using `any`; prefer `unknown` or specific interfaces for metadata.
+
+## Next Steps
+1. **Spatial Data Export:** Enable users to export query results, filtered sub-selections, and spatial analysis outputs (buffers, grids, clusters) in standard formats (GeoJSON, CSV, or Shapefile zip).
+2. **Advanced Style Manager & Legend Customization:** Provide granular control over point colors, sizes, opacities, and scale legends per-layer instead of applying settings globally.
+3. **Sliding-Window Temporal Analysis:** Update timeline animations from cumulative filters (`timestamp <= currentTime`) to sliding time ranges (e.g., `currentTime - windowDuration <= timestamp <= currentTime`) to track propagation and transient clusters.
+
+## Implementation Guide for Next Steps
+
+### 1. Spatial Data Export
+* **Goal:** Allow users to download GeoFlux datasets directly from the UI.
+* **Proposed Solution:**
+  * **Backend:** Add a `GET /datasets/:id/export` route in [index.ts](file:///mnt/Altair/Eyus/work/Geoflux/backend/src/index.ts) that fetches features via Prisma, parses them, and returns them as formatted GeoJSON or CSV. For Shapefiles, integrate a library like `shp-write` or process it on the server.
+  * **Frontend:** Add an export button/action in the dataset list or [Sidebar.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Sidebar.tsx) / [Inspector.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Inspector.tsx). Trigger requests or generate the GeoJSON/CSV download client-side in [useStore.ts](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/store/useStore.ts).
+
+### 2. Advanced Style Manager & Legend Customization
+* **Goal:** Enable discrete layer styling (e.g., coloring datasets differently based on categorization).
+* **Proposed Solution:**
+  * **Frontend Store:** Update `Dataset` type in [index.ts (types)](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/types/index.ts) to hold a dedicated `style` object. Update the state store in [useStore.ts](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/store/useStore.ts) with actions like `updateDatasetStyle(id, style)`.
+  * **Frontend UI:** Add a dataset style customizer interface within [RightPanel.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/RightPanel.tsx) or a popup modal, utilizing dynamic color pickers.
+  * **Map Engine:** Update the layer instantiation logic in [Map.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Map.tsx) to map individual layer parameters to the specific dataset style stored in Zustand instead of the global `mapStyle` settings.
+
+### 3. Sliding-Window Temporal Analysis
+* **Goal:** Animate historical intervals rather than cumulative data.
+* **Proposed Solution:**
+  * **Frontend Store:** Add `windowDuration` and `timeWindowEnabled` properties to `TimelineState` inside [index.ts (types)](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/types/index.ts). Modify the filter logic in `setFilters` inside [useStore.ts](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/store/useStore.ts#L792-L827) to apply the range when temporal filtering is active.
+  * **Map Engine:** Update layer filters inside [Map.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Map.tsx#L223-L228) so MapLibre GL evaluates both lower and upper temporal bounds dynamically.
+  * **Frontend UI:** Integrate a window slider/toggle controls in [Timeline.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Timeline.tsx) to adjust the temporal window size dynamically.
+
+

@@ -1,10 +1,10 @@
-import { X, Info, Database, MapPin, Calendar, Layers } from 'lucide-react'
+import { X, Info, Database, MapPin, Calendar, Layers, Download } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { DataPoint } from '../types'
 
 const Inspector = () => {
-  const { isInspectorOpen, selectedEntity, closeInspector } = useStore()
+  const { isInspectorOpen, selectedEntity, closeInspector, activeDatasetId, exportDataset } = useStore()
 
   if (!selectedEntity) return null
 
@@ -138,7 +138,16 @@ const Inspector = () => {
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-white/10 bg-white/[0.01]">
+        <div className="p-6 border-t border-white/10 bg-white/[0.01] space-y-3">
+          {activeDatasetId && (
+            <button
+              onClick={() => exportDataset(activeDatasetId, 'geojson')}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-cyan-500/10 hover:bg-cyan-500 hover:text-black border border-cyan-500/20 text-cyan-400 text-xs font-bold transition-all duration-300"
+            >
+              <Download size={14} />
+              Export Inspected Layer
+            </button>
+          )}
           <p className="text-[9px] text-white/20 text-center uppercase tracking-widest leading-relaxed">
             GeoFlux Intelligence Engine<br/>
             Real-time Geospatial Inspection Active

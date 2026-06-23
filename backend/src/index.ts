@@ -337,6 +337,80 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
     }
     });
 
+    app.get("/datasets/:id/export", authenticateToken as any, validateRequest(uuidParamSchema), async (req: AuthRequest, res) => {
+      const { id } = req.params as any;
+      const { format = "geojson" } = req.query as any;
+
+      try {
+        const dataset = await prisma.dataset.findUnique({
+          where: { id },
+          select: { id: true, name: true, userId: true }
+        });
+
+        if (!dataset || dataset.userId !== req.user?.id) {
+          return res.status(404).json({ error: "Dataset not found" });
+        }
+
+        const features: any[] = await prisma.$queryRawUnsafe(`
+          SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category 
+          FROM "Feature" 
+          WHERE "datasetId" = $1
+        `, id);
+
+        if (format === "csv") {
+          const allKeys = new Set<string>();
+          features.forEach((f) => {
+            if (f.properties && typeof f.properties === "object") {
+              Object.keys(f.properties).forEach((k) => allKeys.add(k));
+            }
+          });
+          const headerKeys = ["lat", "lng", "value", "category", ...Array.from(allKeys)];
+          
+          const csvRows = [headerKeys.join(",")];
+          for (const f of features) {
+            const coords = f.geometry?.coordinates || [0, 0];
+            const row = headerKeys.map((key) => {
+              if (key === "lat") return coords[1] ?? "";
+              if (key === "lng") return coords[0] ?? "";
+              if (key === "value") return f.value ?? "";
+              if (key === "category") return f.category ? `"${f.category.replace(/"/g, '""')}"` : "";
+              const val = f.properties?.[key];
+              if (val === undefined || val === null) return "";
+              const valStr = typeof val === "object" ? JSON.stringify(val) : String(val);
+              return `"${valStr.replace(/"/g, '""')}"`;
+            });
+            csvRows.push(row.join(","));
+          }
+
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader("Content-Disposition", `attachment; filename="${dataset.name.replace(/[^a-zA-Z0-9]/g, "_")}.csv"`);
+          return res.send(csvRows.join("\n"));
+        }
+
+        const geojson = {
+          type: "FeatureCollection",
+          features: features.map((f) => ({
+            type: "Feature",
+            geometry: f.geometry,
+            properties: {
+              value: f.value,
+              category: f.category,
+              ...(f.properties && typeof f.properties === "object" ? f.properties : {})
+            }
+          }))
+        };
+
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="${dataset.name.replace(/[^a-zA-Z0-9]/g, "_")}.geojson"`);
+        return res.json(geojson);
+      } catch (error) {
+        logger.error({ err: error, id }, "Dataset export error");
+        res.status(500).json({ error: "Failed to export dataset" });
+      }
+    });
+
+
+
     // MVT Tile Route
     app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tileParamsSchema), async (req, res) => {
     try {
@@ -345,7 +419,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
 
     const isAreaMode = mode === 'area';
 
-    const cacheKey = `${id}-${isAreaMode ? 'area' : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}`;
+    const cacheKey = `${id}-${isAreaMode ? 'area' : 'points'}-f:${min}-${max}-${cats.join('.')}-${search}-${req.query.gridType}-${req.query.res}`;
     const redisKey = getTileKey(id, cacheKey, z, x, y);
 
     try {
@@ -364,37 +438,76 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
     if (!dataset) return res.status(404).send("Dataset not found");
 
     // Build the SQL query for MVT
-    let query = `
-      WITH mvt_geom AS (
-        SELECT
-          ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
-          CASE 
-            WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category")
-            ELSE jsonb_build_object('value', "value", 'category', "category") || properties 
-          END as props
-        FROM "Feature"
-        WHERE "datasetId" = $4
-          AND geometry && ST_TileEnvelope($1, $2, $3)
-          AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
-    `;
-
+    let query = "";
     const params: any[] = [z, x, y, id, min, max];
     let paramIdx = 7;
 
-    if (cats.length > 0) {
-      query += ` AND "category" = ANY($${paramIdx++})`;
-      params.push(cats);
-    }
+    if (isAreaMode) {
+      const gridType = req.query.gridType || 'hex';
+      const resolution = Number(req.query.res) || (0.1 / Math.pow(2, z - 2));
+      const isHex = gridType === 'hex';
 
-    if (search) {
-      query += ` AND "properties"::text ILIKE $${paramIdx++}`;
-      params.push(`%${search}%`);
-    }
+      query = `
+        WITH grid AS (
+          SELECT 
+            ${isHex ? 'ST_HexagonGrid' : 'ST_SquareGrid'}($${paramIdx++}, geometry) as geom, 
+            "value", "properties"
+          FROM "Feature"
+          WHERE "datasetId" = $4
+            AND geometry && ST_TileEnvelope($1, $2, $3)
+            AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
+      `;
+      params.push(resolution);
 
-    query += `
-      )
-      SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
-    `;
+      if (cats.length > 0) {
+        query += ` AND "category" = ANY($${paramIdx++})`;
+        params.push(cats);
+      }
+      if (search) {
+        query += ` AND "properties"::text ILIKE $${paramIdx++}`;
+        params.push(`%${search}%`);
+      }
+
+      query += `
+        ),
+        mvt_geom AS (
+          SELECT
+            ST_AsMVTGeom(geom, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
+            jsonb_build_object('value', SUM("value"), 'count', COUNT(*)) as props
+          FROM grid
+          GROUP BY geom
+        )
+        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
+      `;
+    } else {
+      query = `
+        WITH mvt_geom AS (
+          SELECT
+            ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
+            CASE 
+              WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category")
+              ELSE jsonb_build_object('value', "value", 'category', "category") || properties 
+            END as props
+          FROM "Feature"
+          WHERE "datasetId" = $4
+            AND geometry && ST_TileEnvelope($1, $2, $3)
+            AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
+      `;
+
+      if (cats.length > 0) {
+        query += ` AND "category" = ANY($${paramIdx++})`;
+        params.push(cats);
+      }
+      if (search) {
+        query += ` AND "properties"::text ILIKE $${paramIdx++}`;
+        params.push(`%${search}%`);
+      }
+
+      query += `
+        )
+        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
+      `;
+    }
 
     const result = await prisma.$queryRawUnsafe(query, ...params);
     const buffer = (result as any)[0]?.mvt;

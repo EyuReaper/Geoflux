@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import * as h3 from 'h3-js'
 import { useStore, API_URL } from '../store/useStore'
 import type { DataPoint } from '../types'
 
@@ -44,6 +45,65 @@ const buildGeoJson = (data: DataPoint[]): GeoJSON.FeatureCollection => ({
   }))
 })
 
+const buildGridGeoJson = (data: DataPoint[], gridType: 'hex' | 'square', resolution: number): GeoJSON.FeatureCollection => {
+  const grid = new globalThis.Map<string, { value: number; count: number; coords: [number, number][] }>()
+
+  if (gridType === 'hex') {
+    // H3 resolution 1-15. Map slider 1-8.
+    const h3Res = Math.min(15, Math.max(1, Math.round(resolution) + 1))
+    data.forEach(p => {
+      const index = h3.latLngToCell(p.lat, p.lng, h3Res)
+      const existing = grid.get(index) || { value: 0, count: 0, coords: [] }
+      if (existing.count === 0) {
+        existing.coords = h3.cellToBoundary(index, true)
+      }
+      existing.value += (p.value ?? 0)
+      existing.count += 1
+      grid.set(index, existing)
+    })
+  } else {
+    // Square grid. Resolution 0.001 - 2.
+    const res = Math.max(0.001, resolution)
+    data.forEach(p => {
+      const latBin = Math.floor(p.lat / res) * res
+      const lngBin = Math.floor(p.lng / res) * res
+      const key = `${latBin},${lngBin}`
+      const existing = grid.get(key) || { value: 0, count: 0, coords: [] }
+      if (existing.count === 0) {
+        existing.coords = [
+          [lngBin, latBin],
+          [lngBin + res, latBin],
+          [lngBin + res, latBin + res],
+          [lngBin, latBin + res],
+          [lngBin, latBin]
+        ]
+      }
+      existing.value += (p.value ?? 0)
+      existing.count += 1
+      grid.set(key, existing)
+    })
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: Array.from(grid.values()).map(cell => {
+      const lat = cell.coords.reduce((acc, c) => acc + c[1], 0) / cell.coords.length
+      const lng = cell.coords.reduce((acc, c) => acc + c[0], 0) / cell.coords.length
+      return {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [cell.coords] },
+        properties: { 
+          value: cell.value, 
+          count: cell.count, 
+          avg: cell.count > 0 ? cell.value / cell.count : 0,
+          lat,
+          lng
+        }
+      }
+    })
+  }
+}
+
 const Map = () => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -74,9 +134,10 @@ const Map = () => {
   })
 
   // Use refs to store previous values for efficient comparison
-  const prevFilters = useRef(filters)
-  const prevActiveModes = useRef(activeModes)
-  const prevMapStyle = useRef(mapStyle)
+  // Initialize to null to ensure first update is processed
+  const prevFilters = useRef<typeof filters | null>(null)
+  const prevActiveModes = useRef<string[] | null>(null)
+  const prevMapStyle = useRef<typeof mapStyle | null>(null)
 
   const updateLayers = useCallback(() => {
     const mapInstance = map.current
@@ -86,8 +147,9 @@ const Map = () => {
     const newSourceIds = new Set<string>()
     const newLayerIds = new Set<string>()
 
+    const isAreaModeGlobal = activeModes.includes('area') || activeModes.includes('choropleth')
+
     // Determine if structure needs update (sources or layers added/removed)
-    // Frequent updates (filters/timeline) should only update paint/filter properties
     const filtersChanged = JSON.stringify(prevFilters.current) !== JSON.stringify(filters)
     const modesChanged = JSON.stringify(prevActiveModes.current) !== JSON.stringify(activeModes)
     const styleChanged = JSON.stringify(prevMapStyle.current) !== JSON.stringify(mapStyle)
@@ -103,6 +165,7 @@ const Map = () => {
       const isLocalData = ds.data.length > 0
       const isAggregated = !!ds.aggregatedGeoJson
       const isGridDataset = ds.type === 'grid'
+      const isAreaMode = isGridDataset || isAreaModeGlobal
       const sourceLayer = (isLocalData || isAggregated) ? undefined : 'geoflux-layer'
 
       // Source Management
@@ -114,7 +177,10 @@ const Map = () => {
           (existingSource as maplibregl.GeoJSONSource).setData(ds.aggregatedGeoJson!)
         }
       } else if (isLocalData) {
-        const geoJson = buildGeoJson(ds.data)
+        const geoJson = isAreaMode 
+          ? buildGridGeoJson(ds.data, mapStyle.gridType, mapStyle.gridResolution)
+          : buildGeoJson(ds.data)
+        
         const existingSource = mapInstance.getSource(sourceId)
         if (!existingSource) {
           mapInstance.addSource(sourceId, { type: 'geojson', data: geoJson })
@@ -130,7 +196,7 @@ const Map = () => {
           search: filters.searchQuery
         });
 
-        if (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth')) {
+        if (isAreaMode) {
           params.append('mode', 'area');
           params.append('gridType', mapStyle.gridType);
           params.append('res', resParam.toString());
@@ -143,8 +209,8 @@ const Map = () => {
           mapInstance.addSource(sourceId, { type: 'vector', tiles: [tileUrl], maxzoom: 14 })
         } else {
           const source = existingSource as maplibregl.VectorTileSource & { tiles?: string[] }
-          // Only update source if essential params changed (avoid flicker)
-          if (filtersChanged || modesChanged) {
+          // Update source if essential params changed
+          if (filtersChanged || modesChanged || (isAreaMode && styleChanged)) {
              if (!('tiles' in source) || (source.tiles && source.tiles[0] !== tileUrl)) {
               mapInstance.removeSource(sourceId)
               mapInstance.addSource(sourceId, { type: 'vector', tiles: [tileUrl], maxzoom: 14 })
@@ -186,7 +252,7 @@ const Map = () => {
       }
 
       // 3D/Grid Layers
-      if (isGridDataset || activeModes.includes('area') || activeModes.includes('choropleth')) {
+      if (isAreaMode) {
         const layerId = `geoflux-area-${ds.id}`
         if (mapStyle.is3D) {
           const extrusionLayerId = `${layerId}-3d`
@@ -202,6 +268,7 @@ const Map = () => {
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-height', ['interpolate', ['linear'], ['get', 'value'], 0, 0, 100, 100 * mapStyle.extrusionScale])
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-color', ['interpolate', ['linear'], ['get', 'value'], 0, 'rgba(0,0,0,0)', 10, mapStyle.colorScale[0], 30, mapStyle.colorScale[1], 60, mapStyle.colorScale[2], 100, mapStyle.colorScale[3]])
           mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-opacity', mapStyle.opacity)
+          mapInstance.setPaintProperty(extrusionLayerId, 'fill-extrusion-base', 0)
         } else {
           const fillLayerId = `${layerId}-fill`
           newLayerIds.add(fillLayerId)
@@ -365,15 +432,20 @@ const Map = () => {
       const dataPoints: DataPoint[] = features.map(f => {
         const geometry = f.geometry
         const point = isPointGeometry(geometry) ? geometry : null
+        
+        // If not a point, try to get lat/lng from properties (centroids)
+        const lat = point ? point.coordinates[1] : (typeof f.properties?.lat === 'number' ? f.properties.lat : 0)
+        const lng = point ? point.coordinates[0] : (typeof f.properties?.lng === 'number' ? f.properties.lng : 0)
+
         return {
-        id: f.properties?.id || Math.random(),
-        datasetId: f.layer.id.split('-').pop() || '',
-        lat: point ? point.coordinates[1] : 0,
-        lng: point ? point.coordinates[0] : 0,
-        value: typeof f.properties?.value === 'number' ? f.properties.value : undefined,
-        category: typeof f.properties?.category === 'string' ? f.properties.category : undefined,
-        timestamp: f.properties?.timestamp,
-        metadata: (f.properties || {}) as Record<string, unknown>
+          id: f.properties?.id || Math.random(),
+          datasetId: f.layer.id.split('-').pop() || '',
+          lat,
+          lng,
+          value: typeof f.properties?.value === 'number' ? f.properties.value : undefined,
+          category: typeof f.properties?.category === 'string' ? f.properties.category : undefined,
+          timestamp: f.properties?.timestamp,
+          metadata: (f.properties || {}) as Record<string, unknown>
         }
       })
 
