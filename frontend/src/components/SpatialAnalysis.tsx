@@ -1,15 +1,15 @@
 import { useState, useMemo } from 'react'
-import { Hexagon, Square, Play, Trash2, ChevronDown, CircleDot, Component, Layers, Pentagon, Sparkles, AlertCircle } from 'lucide-react'
+import { Hexagon, Square, Play, Trash2, ChevronDown, CircleDot, Component, Layers, Pentagon, Sparkles, AlertCircle, type LucideIcon } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { cn } from '../lib/utils'
 import type { SpatialToolType } from '../types'
 
 const SpatialAnalysis = () => {
-  const { 
-    datasets, 
-    spatialAggregationConfig, 
-    setSpatialAggregationConfig, 
-    performSpatialAggregation, 
+  const {
+    datasets,
+    spatialAggregationConfig,
+    setSpatialAggregationConfig,
+    performSpatialAggregation,
     clearSpatialAggregation,
     aggregatedDatasetId,
     isLoading,
@@ -26,7 +26,7 @@ const SpatialAnalysis = () => {
     if (!activeDataset?.data || activeDataset.data.length === 0) {
       return useStore.getState().availableFields
     }
-    
+
     const sample = activeDataset.data.slice(0, 10)
     const fields = new Set<string>()
     sample.forEach(d => {
@@ -42,7 +42,7 @@ const SpatialAnalysis = () => {
     await performSpatialAggregation()
   }
 
-  const tools: { id: SpatialToolType; label: string; icon: any }[] = [
+  const tools: { id: SpatialToolType; label: string; icon: LucideIcon }[] = [
     { id: 'aggregation', label: 'Grid', icon: Layers },
     { id: 'buffer', label: 'Buffer', icon: CircleDot },
     { id: 'clustering', label: 'Cluster', icon: Component },
@@ -58,7 +58,7 @@ const SpatialAnalysis = () => {
           <Hexagon size={14} className="text-orange-400" />
           Spatial Analytics
         </h2>
-        <button 
+        <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="p-1 text-white/20 hover:text-white transition-colors"
         >
@@ -71,7 +71,7 @@ const SpatialAnalysis = () => {
           {/* Tool Selection */}
           <div className="grid grid-cols-3 gap-1 p-1 bg-white/5 rounded-xl border border-white/10">
             {tools.map(tool => (
-              <button 
+              <button
                 key={tool.id}
                 onClick={() => setSpatialAggregationConfig({ type: tool.id })}
                 className={cn(
@@ -88,7 +88,7 @@ const SpatialAnalysis = () => {
           {/* Source Dataset Selection */}
           <div className="space-y-2">
             <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Source Dataset</label>
-            <select 
+            <select
               value={spatialAggregationConfig.sourceDatasetId || ''}
               onChange={(e) => setSpatialAggregationConfig({ sourceDatasetId: e.target.value })}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500/50 appearance-none"
@@ -106,7 +106,7 @@ const SpatialAnalysis = () => {
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Grid Type</label>
                 <div className="flex p-1 bg-white/5 rounded-xl border border-white/10">
-                  <button 
+                  <button
                     onClick={() => setSpatialAggregationConfig({ targetGridType: 'hex' })}
                     className={cn(
                       "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase transition-all",
@@ -116,7 +116,7 @@ const SpatialAnalysis = () => {
                     <Hexagon size={12} />
                     Hex
                   </button>
-                  <button 
+                  <button
                     onClick={() => setSpatialAggregationConfig({ targetGridType: 'square' })}
                     className={cn(
                       "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase transition-all",
@@ -132,7 +132,7 @@ const SpatialAnalysis = () => {
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Resolution</label>
                 <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
-                  <input 
+                  <input
                     type="number"
                     min={spatialAggregationConfig.targetGridType === 'hex' ? 1 : 0.001}
                     max={spatialAggregationConfig.targetGridType === 'hex' ? 10 : 2}
@@ -164,7 +164,7 @@ const SpatialAnalysis = () => {
                       : (spatialAggregationConfig.hullMaxEdge || 10)}
                 </span>
               </div>
-              <input 
+              <input
                 type="range"
                 min="0.1"
                 max="100"
@@ -174,12 +174,12 @@ const SpatialAnalysis = () => {
                   : spatialAggregationConfig.type === 'clustering'
                     ? spatialAggregationConfig.clusterRadius
                     : (spatialAggregationConfig.hullMaxEdge || 10)}
-                onChange={(e) => setSpatialAggregationConfig({ 
+                onChange={(e) => setSpatialAggregationConfig({
                   [spatialAggregationConfig.type === 'buffer'
                     ? 'bufferRadius'
                     : spatialAggregationConfig.type === 'clustering'
                       ? 'clusterRadius'
-                      : 'hullMaxEdge']: parseFloat(e.target.value) 
+                      : 'hullMaxEdge']: parseFloat(e.target.value)
                 })}
                 className="w-full accent-orange-500"
               />
@@ -190,7 +190,7 @@ const SpatialAnalysis = () => {
           {spatialAggregationConfig.type === 'aggregation' && (
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Value Field (Optional)</label>
-              <select 
+              <select
                 value={spatialAggregationConfig.aggregationField || ''}
                 onChange={(e) => setSpatialAggregationConfig({ aggregationField: e.target.value || null })}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500/50 appearance-none"
@@ -207,7 +207,7 @@ const SpatialAnalysis = () => {
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between px-1">
               <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest">Save Result Permanently</label>
-              <button 
+              <button
                 onClick={() => setSpatialAggregationConfig({ persist: !spatialAggregationConfig.persist })}
                 className={cn(
                   "w-8 h-4 rounded-full relative transition-colors",
@@ -224,7 +224,7 @@ const SpatialAnalysis = () => {
             {spatialAggregationConfig.persist && (
               <div className="space-y-2 animate-in slide-in-from-left-2">
                 <label className="text-[10px] font-bold uppercase text-white/20 tracking-widest px-1">Result Name</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Enter analysis name..."
                   value={spatialAggregationConfig.customName || ''}
@@ -245,15 +245,15 @@ const SpatialAnalysis = () => {
                 </p>
               </div>
             )}
-            
+
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={handleRun}
                 disabled={!spatialAggregationConfig.sourceDatasetId || isLoading || !auth.isAuthenticated}
                 className={cn(
                   "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
-                  (isLoading || !auth.isAuthenticated) 
-                    ? "bg-white/5 text-white/20 cursor-not-allowed" 
+                  (isLoading || !auth.isAuthenticated)
+                    ? "bg-white/5 text-white/20 cursor-not-allowed"
                     : "bg-orange-500 text-black hover:bg-orange-400 shadow-lg shadow-orange-500/20"
                 )}
               >
@@ -262,9 +262,9 @@ const SpatialAnalysis = () => {
                 ) : <Play size={14} fill="currentColor" />}
                 {spatialAggregationConfig.persist ? 'Run & Save' : 'Run Analysis'}
               </button>
-              
+
               {aggregatedDatasetId && (
-                <button 
+                <button
                   onClick={clearSpatialAggregation}
                   className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-all"
                   title="Clear Results"
@@ -276,7 +276,7 @@ const SpatialAnalysis = () => {
           </div>
         </div>
       )}
-      
+
       {aggregatedDatasetId && (
         <div className="p-3 rounded-xl bg-orange-500/5 border border-orange-500/20 flex items-center justify-between animate-in zoom-in-95">
           <div className="flex items-center gap-3">

@@ -41,15 +41,25 @@ const { PrismaClient } = require(`${process.cwd()}/prisma/generated/prisma`);
 
 const app = express();
 const httpServer = createServer(app);
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map(s => s.trim())
+  : process.env.FRONTEND_URL
+    ? [process.env.FRONTEND_URL]
+    : ["http://localhost:5173"];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
 
 const port = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 16) {
+  logger.fatal("JWT_SECRET environment variable is required (min 16 characters)");
+  process.exit(1);
+}
 
 // Initialize Prisma
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -150,7 +160,10 @@ app.use(pinoHttp({ logger }));
 
 // Security Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json({ limit: "50mb" }));
 
 // General Rate Limiting

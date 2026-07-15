@@ -49,7 +49,8 @@ const TOUR_STEPS: TourStep[] = [
 
 function App() {
   const { isSidebarOpen, toggleSidebar, isRightPanelOpen, toggleRightPanel, data, fetchDatasets, loadWorkspace } = useStore()
-  const [isWelcomeDismissed, setIsWelcomeDismissed] = useState(false)
+  const [isWelcomeDismissed, setIsWelcomeDismissed] = useState(() =>
+    window.localStorage.getItem('geoflux:welcome:dismissed') === 'true')
   const [isTourOpen, setIsTourOpen] = useState(false)
   const [tourStepIndex, setTourStepIndex] = useState(0)
   const [tourTargetRect, setTourTargetRect] = useState<DOMRect | null>(null)
@@ -62,10 +63,6 @@ function App() {
     }
     fetchDatasets()
   }, [fetchDatasets, loadWorkspace])
-
-  useEffect(() => {
-    setIsWelcomeDismissed(window.localStorage.getItem('geoflux:welcome:dismissed') === 'true')
-  }, [])
 
   const dismissWelcome = () => {
     window.localStorage.setItem('geoflux:welcome:dismissed', 'true')
@@ -98,11 +95,8 @@ function App() {
   }, [activeTourStep.ensureOpen, isRightPanelOpen, isSidebarOpen, isTourOpen, toggleRightPanel, toggleSidebar])
 
   useEffect(() => {
-    if (!isTourOpen) {
-      setTourTargetRect(null)
-      return
-    }
 
+    if(!isTourOpen) return
     const updateTargetRect = () => {
       const targetEl = document.querySelector(activeTourStep.selector)
       setTourTargetRect(targetEl ? targetEl.getBoundingClientRect() : null)
@@ -113,6 +107,7 @@ function App() {
     window.addEventListener('resize', updateTargetRect)
     window.addEventListener('scroll', updateTargetRect, true)
     return () => {
+      setTourTargetRect(null)
       window.clearTimeout(timer)
       window.removeEventListener('resize', updateTargetRect)
       window.removeEventListener('scroll', updateTargetRect, true)
@@ -138,10 +133,10 @@ function App() {
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#0a0a0a] text-white font-sans selection:bg-cyan-500/30 flex flex-col">
       <Navbar />
-      
+
       <main className="relative h-full w-full pt-16 flex">
         {/* Toggle Sidebar Buttons */}
-        <button 
+        <button
           onClick={toggleSidebar}
           className={cn(
             "fixed z-[2000] left-4 top-[5rem] p-2 rounded-lg bg-black/40 backdrop-blur-md border border-white/10 text-white/50 hover:text-white transition-all hover:bg-white/5",
@@ -151,7 +146,7 @@ function App() {
           {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
         </button>
 
-        <button 
+        <button
           onClick={toggleRightPanel}
           className={cn(
             "fixed z-[2000] right-4 top-[5rem] p-2 rounded-lg bg-black/40 backdrop-blur-md border border-white/10 text-white/50 hover:text-white transition-all hover:bg-white/5",
@@ -164,12 +159,12 @@ function App() {
         <div data-tour="sidebar">
           <Sidebar />
         </div>
-        
+
         <div className="flex-1 relative bg-black" data-tour="map">
           <Suspense fallback={<div className="absolute inset-0 bg-black" />}>
             <Map />
           </Suspense>
-          
+
           {data.length === 0 && !isWelcomeDismissed && (
             <div className="absolute inset-0 flex items-center justify-center z-[500]">
               <div className="bg-black/40 backdrop-blur-md border border-white/10 p-12 rounded-[2.5rem] text-center space-y-4 animate-in fade-in zoom-in duration-700 pointer-events-auto">

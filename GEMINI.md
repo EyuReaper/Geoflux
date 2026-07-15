@@ -82,17 +82,11 @@ npm run dev
 - Avoid using `any`; prefer `unknown` or specific interfaces for metadata.
 
 ## Next Steps
-1. **Spatial Data Export:** Enable users to export query results, filtered sub-selections, and spatial analysis outputs (buffers, grids, clusters) in standard formats (GeoJSON, CSV, or Shapefile zip).
 2. **Advanced Style Manager & Legend Customization:** Provide granular control over point colors, sizes, opacities, and scale legends per-layer instead of applying settings globally.
 3. **Sliding-Window Temporal Analysis:** Update timeline animations from cumulative filters (`timestamp <= currentTime`) to sliding time ranges (e.g., `currentTime - windowDuration <= timestamp <= currentTime`) to track propagation and transient clusters.
 
 ## Implementation Guide for Next Steps
 
-### 1. Spatial Data Export
-* **Goal:** Allow users to download GeoFlux datasets directly from the UI.
-* **Proposed Solution:**
-  * **Backend:** Add a `GET /datasets/:id/export` route in [index.ts](file:///mnt/Altair/Eyus/work/Geoflux/backend/src/index.ts) that fetches features via Prisma, parses them, and returns them as formatted GeoJSON or CSV. For Shapefiles, integrate a library like `shp-write` or process it on the server.
-  * **Frontend:** Add an export button/action in the dataset list or [Sidebar.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Sidebar.tsx) / [Inspector.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Inspector.tsx). Trigger requests or generate the GeoJSON/CSV download client-side in [useStore.ts](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/store/useStore.ts).
 
 ### 2. Advanced Style Manager & Legend Customization
 * **Goal:** Enable discrete layer styling (e.g., coloring datasets differently based on categorization).
@@ -108,4 +102,132 @@ npm run dev
   * **Map Engine:** Update layer filters inside [Map.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Map.tsx#L223-L228) so MapLibre GL evaluates both lower and upper temporal bounds dynamically.
   * **Frontend UI:** Integrate a window slider/toggle controls in [Timeline.tsx](file:///mnt/Altair/Eyus/work/Geoflux/frontend/src/components/Timeline.tsx) to adjust the temporal window size dynamically.
 
+---
 
+## Improvement Points (Grok review — 2026-07-15)
+
+Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 LOC), Zustand store (`frontend/src/store/useStore.ts` ~1137 LOC), PostGIS MVT tiles, Redis cache, Docker/CI, and existing Next Steps (style manager, sliding-window timeline).
+
+### P0 — Correctness & Security
+
+1. **Fix Docker production start path**  
+   `backend/Dockerfile` runs `node dist/index.js`, but `tsc` emits to `dist/src/index.js` and `package.json` `start` already uses that path. Image will fail at boot until aligned (match `start` or adjust `tsconfig` `outDir`/`rootDir`).
+
+2. **Remove JWT secret fallbacks**  
+   Both `index.ts` and `middleware/auth.ts` fall back to `"fallback_secret"`. In production, refuse to start if `JWT_SECRET` is missing or weak.
+
+3. **Lock down CORS / Socket.IO origins**  
+   Socket.IO is `origin: "*"`. Bind CORS and Socket.IO to an allowlist (`FRONTEND_URL` / `CORS_ORIGINS`). Avoid credentials + wildcard combinations.
+
+4. **Authenticate or authorize tile access**  
+   `GET /datasets/:id/tiles/...` is public (UUID = capability). Either require JWT, signed tile tokens, or enforce ownership/workspace visibility. UUID secrecy alone is not enough for private datasets.
+
+5. **Sandbox or drop `new Function` transformations**  
+   `runValueTransformation` evaluates user expressions with `new Function`. That is arbitrary JS on the client and becomes a stored XSS/RCE vector if expressions are persisted/shared. Prefer a safe expression language (e.g. mathjs, expr-eval) or a fixed operator set.
+
+6. **Harden raw SQL usage**  
+   Prefer `Prisma.sql` / `$queryRaw` tagged templates over `$queryRawUnsafe` / `$executeRawUnsafe` wherever the SQL shape is static. Keep dynamic filters via bound parameters only (already partly done for tiles—extend the same discipline to export, ingest, spatial tools).
+
+7. **docker-compose completeness**  
+   Compose has PostGIS + backend + frontend but **no Redis**, and hardcodes a weak `JWT_SECRET`. Add a Redis service, wire `REDIS_URL`, use env files/secrets, and healthcheck dependencies before app start.
+
+### P1 — Architecture & Maintainability
+
+8. **Split the backend god-file**  
+   Extract routers/services from `index.ts`: `routes/auth`, `routes/datasets`, `routes/tiles`, `routes/workspaces`, `routes/spatial`, plus `services/tileCache`, `services/ingest`, `services/spatial`. Keep `index.ts` as wiring only. Improves testability and reviewability.
+
+9. **Split the frontend Zustand store**  
+   `useStore.ts` owns auth, datasets, map, filters, timeline, spatial, websockets. Slice into domain stores (or Zustand slices): `authStore`, `datasetStore`, `mapStore`, `timelineStore`, with a thin composition layer. Reduces re-render coupling and makes unit tests tractable.
+
+10. **API layering & versioning**  
+    Prefix routes with `/api/v1`, centralize fetch client on the frontend (auth header, error parsing, retries), and stop scattering `API_URL` + manual `fetch` across the store.
+
+11. **Ownership checks as middleware**  
+    Dataset/workspace ownership is copy-pasted (`findUnique` + `userId !== req.user?.id`). Add `requireDatasetOwner` / `requireWorkspaceAccess` middleware to eliminate drift and missed checks (tiles currently skip ownership entirely).
+
+12. **Remove dead dependencies**  
+    Frontend lists `leaflet` / `react-leaflet` while the map is MapLibre-only—drop unused packages. Audit backend for unused `@types/*` and dual runners (`ts-node` / `ts-node-dev` vs `tsx`).
+
+13. **Monorepo / root workspace tooling**  
+    No root `package.json`. Add npm/pnpm workspaces + scripts: `dev`, `test`, `lint`, `build` for both packages; shared ESLint/TS configs optional. Improves onboarding (docs currently imply separate installs only).
+
+14. **Type hygiene**  
+    Widespread `as any`, `error: any`, and Zod `z.any()`. Prefer typed Prisma results, `unknown` + narrowing in catch blocks, and stricter Zod schemas for GeoJSON coordinates/metadata. Align GEMINI “avoid any” convention with enforcement (ESLint `@typescript-eslint/no-explicit-any` in CI).
+
+### P2 — Performance & Data Model
+
+15. **Large-dataset path consistency**  
+    Dual modes (client GeoJSON for local uploads vs server MVT for remote datasets) are powerful but easy to diverge (filters, timeline, styles). Document the contract and share filter builders; eventually stream local uploads to the server so one rendering path (MVT) serves both.
+
+16. **Ingest scale**  
+    50MB JSON body + 1k batch inserts works for demos, not for millions of points. Add: size/feature caps, streaming multipart upload, optional async job + progress events, and PostGIS `COPY` or multi-row insert with prepared statements. Return 413 with clear limits.
+
+17. **Tile pipeline efficiency**  
+    - General rate limit (100/15min) applies globally before tile-specific limits—map browsing may 429 under normal use; exclude `/health` and tile routes from the general limiter.  
+    - In-memory `geojson-vt` path coexists with PostGIS `ST_AsMVT`; clarify which path is production (docs say PostGIS MVT—ensure dead/in-memory code is removed or isolated).  
+    - Cache keys include filter state—good; add cache stampede protection (single-flight already exists for index build; mirror for Redis misses).
+
+18. **Spatial analysis memory**  
+    `/spatial-tool` loads **all** features for a dataset into Node, then Turf. For large sets this will OOM. Push aggregation/buffer/cluster into SQL/PostGIS (or sample + server-side paginated processing) and stream results.
+
+19. **Feature/timestamp first-class columns**  
+    Timeline and temporal filters need efficient queries. If timestamps live only inside `properties` JSON, add a typed `timestamp` column + index on `Feature` for server-side temporal MVT filters (pairs with sliding-window Next Step).
+
+20. **Export completeness**  
+    Store advertises `shp` export; backend implements geojson/csv only. Either implement shapefile (e.g. via GDAL worker) or remove the option from the UI/API contract.
+
+### P3 — Product & UX (beyond existing Next Steps)
+
+21. **Keep planned work** (already in this file): per-dataset style/legend manager; sliding-window temporal analysis—both remain high value.
+
+22. **Workspace as source of truth**  
+    Deep-link snapshots exist; strengthen workspace restore (map view, layers, styles, filters, timeline) and conflict handling when datasets are deleted.
+
+23. **Auth UX & session lifecycle**  
+    JWT-only, 24h, localStorage. Add refresh tokens or short-lived access + httpOnly cookies; logout-all; password reset; optional email verification. Prefer not storing long-lived tokens in `localStorage` if XSS surface is non-trivial (transformations UI increases that surface).
+
+24. **Observability**  
+    Pino + health checks are a good start. Add request IDs end-to-end, structured error codes, Prometheus metrics (tile latency, cache hit rate, ingest duration), and OpenTelemetry traces for MVT SQL.
+
+25. **Accessibility & map chrome**  
+    Keyboard control for timeline, focus traps in modals, ARIA labels on panels, and reduced-motion preference for playback animations.
+
+### P4 — Testing, CI/CD, Docs
+
+26. **CI gaps**  
+    Frontend runs lint/test/build; backend only `gate:runtime` (build + smoke). Add: `backend npm test`, Redis service in CI, lint for backend, and optionally integration tests against PostGIS. Fix any missing Redis in backend job.
+
+27. **Test coverage targets**  
+    Current tests: light auth/dataset integration, store unit tests, Sidebar smoke. Prioritize: tile generation (filter combinations), ownership denial, spatial-tool validation, store filter/timeline logic, Map layer update races (with MapLibre mocks).
+
+28. **Load-test in CI gate (nightly)**  
+    `scripts/load-test.js` exists—run periodically against a staging stack; track p95 tile latency and error rate as release gates for map-critical paths.
+
+29. **Docs accuracy**  
+    - GEMINI claims Vite 8; `frontend/package.json` uses Vite 7.x.  
+    - README still notes hardcoded API base; code supports `VITE_API_URL`—update README.  
+    - DEVELOPER.md path for load-test (`backend/scripts/load-test.js` vs repo `scripts/load-test.js`) may be wrong—verify and fix.  
+    - DEPLOYMENT mentions `docker-compose.prod.yml` “if available”—add it or remove the claim.
+
+30. **`.gitignore` oddities**  
+    Ignoring `GEMINI.md`, `docker-compose.yml`, and `setup_db.sh` makes collaboration harder. Prefer committing compose templates and agent notes (or a sanitized `docker-compose.example.yml`) and only ignoring secrets.
+
+### Suggested priority order (practical)
+
+| Phase | Items | Outcome |
+|-------|-------|---------|
+| Hotfix | 1–4, 7 | Bootable, securable deploy |
+| Hardening | 5–6, 11, 26 | Safer eval surface, consistent authz, CI confidence |
+| Structure | 8–10, 12–14 | Faster feature work without regressions |
+| Scale | 15–20 | Real datasets without OOM/429s |
+| Product | 21–25, 27–30 | Differentiated UX + operational maturity |
+
+### Design principles to adopt going forward
+
+- **One rendering path for hosted data** (MVT + filters server-side); client GeoJSON only for ephemeral local preview.  
+- **Fail closed on secrets and ownership** (no silent fallbacks, no public private tiles).  
+- **Bound every user-influenced SQL fragment**; never concatenate untrusted strings into SQL.  
+- **Keep hot paths (tiles, ingest) measurable** before optimizing further.  
+- **Thin routes, fat typed services**; UI state sliced by domain.
+
+*Reviewer note: Strengths worth preserving—PostGIS GIST + ST_AsMVT, Redis tile cache + pub/sub eviction, Zod validation, rate limits, helmet, health with dependency probes, workspace sharing concept, and solid map UX foundations. Improvements above aim to turn a strong prototype into a production multi-tenant spatial platform.*

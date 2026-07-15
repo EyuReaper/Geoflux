@@ -284,7 +284,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       const { token, user } = data;
       localStorage.setItem('geoflux_token', token);
       set({ auth: { token, user, isAuthenticated: true }, isLoading: false });
-      
+
       await Promise.all([get().fetchDatasets(), get().fetchWorkspaces()]);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Login failed', isLoading: false });
@@ -532,7 +532,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
         name: savedDataset.name,
         color: savedDataset.color,
         isVisible: true,
-        data: [], 
+        data: [],
         stats
       }
 
@@ -622,10 +622,9 @@ export const useStore = create<GeoFluxState>((set, get) => ({
           }))
 
           const isGrid = fullDataset.type === 'grid'
-          const rawData = isGrid 
-            ? datasetData.map((f: any) => f.properties)
-            : datasetData.map((d: any) => d.metadata as Record<string, unknown>)
-
+          const rawData = isGrid
+            ? datasetData.map((f: Record<string, unknown>) => f.properties as Record<string, unknown>)
+            : datasetData.map((d: Record<string, unknown>) => d.metadata as Record<string, unknown>)
           set({
             activeDatasetId: id,
             rawData,
@@ -689,7 +688,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
           headers: { 'Authorization': `Bearer ${token}` }
         })
         if (!response.ok) throw new Error('Failed to export dataset from server')
-        
+
         const blob = await response.blob()
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -762,7 +761,7 @@ export const useStore = create<GeoFluxState>((set, get) => ({
       })
 
       if (!response.ok) throw new Error('Failed to perform spatial operation')
-      
+
       const result = await response.json()
 
       if (spatialAggregationConfig.persist) {
@@ -1090,11 +1089,11 @@ export const useStore = create<GeoFluxState>((set, get) => ({
   updateGlobalData: () => {
     const { datasets } = get()
     const visibleDatasets = datasets.filter(d => d.isVisible)
-    
+
     // Aggregate data from all visible datasets
     // Note: Only works for datasets that have 'data' loaded (local or small remote)
     const allData = visibleDatasets.flatMap(ds => ds.data)
-    
+
     get().setData(allData)
   },
 
