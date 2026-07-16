@@ -126,5 +126,35 @@ describe("Integration Tests", () => {
       expect(response.body.name).toBe("Test Dataset");
       expect(response.body).toHaveProperty("id");
     });
+
+    it("should reject unauthenticated tile access", async () => {
+      const createRes = await request(app)
+        .post("/datasets")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "Tile Auth Dataset",
+          color: "#00ff00",
+          type: "points",
+          data: [{ lat: 1, lng: 2, value: 10, category: "B" }],
+        });
+
+      expect(createRes.status).toBe(201);
+      const datasetId = createRes.body.id;
+
+      const unauth = await request(app).get(
+        `/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`
+      );
+      expect(unauth.status).toBe(401);
+
+      const auth = await request(app)
+        .get(`/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`)
+        .set("Authorization", `Bearer ${token}`);
+      // 200 (tile), 204 (empty), or 500 if PostGIS tile helpers unavailable in CI
+      expect([200, 204, 500]).toContain(auth.status);
+      if (auth.status !== 500) {
+        expect(auth.status).not.toBe(401);
+        expect(auth.status).not.toBe(403);
+      }
+    });
   });
 });

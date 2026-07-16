@@ -54,7 +54,7 @@ const Transformations = () => {
               className="w-full bg-black/20 border border-white/10 rounded-lg py-2 px-3 text-xs font-mono focus:outline-none focus:border-cyan-500/50"
             />
             <p className="text-[9px] text-white/20 italic px-1">
-              Variables: <span className="text-cyan-400/60">value</span>, <span className="text-cyan-400/60">row</span>
+              Safe math only. Vars: <span className="text-cyan-400/60">value</span>, field names (e.g. <span className="text-cyan-400/60">count * 2</span>)
             </p>
           </div>
           <button 

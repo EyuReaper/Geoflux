@@ -36,10 +36,10 @@ export const startMaintenanceWorker = () => {
 
       // 2. Validate Spatial Integrity
       // Purge any features with invalid geometries that might have slipped through
-      const invalidResult = await prisma.$executeRawUnsafe(`
-        DELETE FROM "Feature" 
+      const invalidResult = await prisma.$executeRaw`
+        DELETE FROM "Feature"
         WHERE NOT ST_IsValid(geometry)
-      `);
+      `;
       
       if (invalidResult > 0) {
         logger.warn({ count: invalidResult }, "Purged features with invalid geometries");

@@ -1,7 +1,27 @@
 import { create } from 'zustand'
 import { io, type Socket } from 'socket.io-client'
 import Papa from 'papaparse'
+import { Parser } from 'expr-eval'
 import type { VisualizationMode, DataPoint, MapState, MapStyle, FilterState, TimelineState, FieldMapping, InspectorEntity, Dataset, Transformation, AuthState, Workspace, SpatialToolConfig, RegionFocus } from '../types/index'
+
+/** Safe math expression evaluator — no arbitrary JS (replaces new Function). */
+const expressionParser = new Parser({
+  operators: {
+    add: true,
+    concatenate: false,
+    conditional: true,
+    divide: true,
+    factorial: false,
+    multiply: true,
+    power: true,
+    remainder: true,
+    subtract: true,
+    logical: true,
+    comparison: true,
+    in: false,
+    assignment: false,
+  },
+})
 
 interface GeoFluxState {
   // Auth
@@ -253,8 +273,16 @@ const runValueTransformation = (
   expression: string
 ) => {
   try {
-    const fn = new Function('value', 'row', `return ${expression}`)
-    const result = fn(value, row) as unknown
+    const expr = expressionParser.parse(expression)
+    // Scope: value + primitive row fields (no functions / prototypes)
+    const scope: Record<string, number | string | boolean> = { value }
+    for (const [key, val] of Object.entries(row)) {
+      if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
+        scope[key] = val
+      }
+    }
+    // expr-eval expects its Value type; we only inject primitives
+    const result = expr.evaluate(scope as never)
     return typeof result === 'number' && !Number.isNaN(result) ? result : value
   } catch {
     return value

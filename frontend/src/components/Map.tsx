@@ -331,6 +331,22 @@ const Map = () => {
       zoom: mapState.zoom,
       pitch: mapState.pitch,
       bearing: mapState.bearing,
+      // Attach JWT for private vector tiles (MapLibre cannot set headers on tile URLs alone)
+      transformRequest: (url, resourceType) => {
+        if (
+          (resourceType === 'Tile' || resourceType === 'Source') &&
+          url.startsWith(API_URL)
+        ) {
+          const token = useStore.getState().auth.token
+          if (token) {
+            return {
+              url,
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          }
+        }
+        return { url }
+      },
     })
 
     m.on('load', () => {

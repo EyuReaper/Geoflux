@@ -193,6 +193,9 @@ registry.registerPath({
   method: "get",
   path: "/datasets/{id}/tiles/{z}/{x}/{y}.pbf",
   summary: "Get vector tiles for a dataset",
+  description:
+    "Requires JWT via Authorization: Bearer <token> (preferred) or ?token= query param. Dataset must be owned by the authenticated user.",
+  security: [{ [bearerAuth.name]: [] }],
   request: {
     params: tileParamsSchema.shape.params,
     query: tileParamsSchema.shape.query,
@@ -209,6 +212,8 @@ registry.registerPath({
         },
       },
     },
+    401: { description: "Missing or invalid token" },
+    404: { description: "Dataset not found or access denied" },
   },
 });
 

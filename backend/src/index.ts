@@ -37,7 +37,7 @@ import {
 } from "./utils/validation.js";
 
 const require = createRequire(import.meta.url);
-const { PrismaClient } = require(`${process.cwd()}/prisma/generated/prisma`);
+const { PrismaClient, Prisma } = require(`${process.cwd()}/prisma/generated/prisma`);
 
 const app = express();
 const httpServer = createServer(app);
@@ -154,6 +154,61 @@ const evictDatasetTiles = async (datasetId: string) => {
 };
 
 const firstParam = (value: string | string[]) => Array.isArray(value) ? value[0] : value;
+
+/** Require the authenticated user to own the dataset. Returns null if not found or forbidden. */
+const findOwnedDataset = async <T extends object = { id: string; userId: string | null; type: string }>(
+  id: string,
+  userId: string | undefined,
+  select?: T
+) => {
+  if (!userId) return null;
+  const dataset = await prisma.dataset.findUnique({
+    where: { id },
+    select: select ?? { id: true, userId: true, type: true },
+  });
+  if (!dataset || (dataset as { userId?: string | null }).userId !== userId) {
+    return null;
+  }
+  return dataset as T extends object ? T & { userId: string | null } : never;
+};
+
+/** Batch-insert features with bound parameters (no string-built SQL). */
+const insertFeatureBatch = async (
+  datasetId: string,
+  items: Array<{
+    geometry?: object;
+    lat?: number;
+    lng?: number;
+    metadata?: object;
+    properties?: object;
+    value?: number | null;
+    category?: string | null;
+  }>
+) => {
+  if (items.length === 0) return;
+
+  const rows = items.map((item) => {
+    const id = crypto.randomUUID();
+    const geometry = item.geometry || {
+      type: "Point",
+      coordinates: [item.lng, item.lat],
+    };
+    const props = item.metadata ?? item.properties ?? {};
+    return Prisma.sql`(
+      ${id},
+      ${datasetId},
+      ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geometry)}), 4326),
+      ${JSON.stringify(props)}::jsonb,
+      ${item.value ?? null},
+      ${item.category ?? null}
+    )`;
+  });
+
+  await prisma.$executeRaw`
+    INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category")
+    VALUES ${Prisma.join(rows)}
+  `;
+};
 
 // Logging Middleware
 app.use(pinoHttp({ logger }));
@@ -364,11 +419,11 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
           return res.status(404).json({ error: "Dataset not found" });
         }
 
-        const features: any[] = await prisma.$queryRawUnsafe(`
-          SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category 
-          FROM "Feature" 
-          WHERE "datasetId" = $1
-        `, id);
+        const features: any[] = await prisma.$queryRaw`
+          SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
+          FROM "Feature"
+          WHERE "datasetId" = ${id}
+        `;
 
         if (format === "csv") {
           const allKeys = new Set<string>();
@@ -424,11 +479,24 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
 
 
 
-    // MVT Tile Route
-    app.get("/datasets/:id/tiles/:z/:x/:y.pbf", tileLimiter, validateRequest(tileParamsSchema), async (req, res) => {
+    // MVT Tile Route — requires JWT (header or ?token=) and dataset ownership
+    app.get(
+      "/datasets/:id/tiles/:z/:x/:y.pbf",
+      tileLimiter,
+      authenticateToken as any,
+      validateRequest(tileParamsSchema),
+      async (req: AuthRequest, res) => {
     try {
     const { id, z, x, y } = req.params as any;
     const { min, max, cats, search, mode } = req.query as any;
+    const zNum = Number(z);
+    const xNum = Number(x);
+    const yNum = Number(y);
+
+    const dataset = await findOwnedDataset(id, req.user?.id, { id: true, userId: true, type: true });
+    if (!dataset) {
+      return res.status(404).send("Dataset not found");
+    }
 
     const isAreaMode = mode === 'area';
 
@@ -439,7 +507,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
       const cachedPbf = await redis.getBuffer(redisKey);
       if (cachedPbf) {
         res.setHeader("Content-Type", "application/x-protobuf");
-        res.setHeader("Cache-Control", "public, max-age=60");
+        res.setHeader("Cache-Control", "private, max-age=60");
         res.setHeader("X-Cache", "HIT-REDIS");
         return res.send(cachedPbf);
       }
@@ -447,83 +515,68 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
       logger.warn({ err }, "Redis cache error");
     }
 
-    const dataset = await prisma.dataset.findUnique({ where: { id }, select: { type: true } });
-    if (!dataset) return res.status(404).send("Dataset not found");
+    // Optional filter fragments (bound parameters only)
+    const filterFragments: ReturnType<typeof Prisma.sql>[] = [];
+    if (Array.isArray(cats) && cats.length > 0) {
+      filterFragments.push(Prisma.sql`AND "category" IN (${Prisma.join(cats)})`);
+    }
+    if (search) {
+      filterFragments.push(Prisma.sql`AND "properties"::text ILIKE ${`%${search}%`}`);
+    }
+    const extraFilters = filterFragments.length > 0
+      ? Prisma.join(filterFragments, " ")
+      : Prisma.empty;
 
-    // Build the SQL query for MVT
-    let query = "";
-    const params: any[] = [z, x, y, id, min, max];
-    let paramIdx = 7;
+    let result: any[];
 
     if (isAreaMode) {
       const gridType = req.query.gridType || 'hex';
-      const resolution = Number(req.query.res) || (0.1 / Math.pow(2, z - 2));
-      const isHex = gridType === 'hex';
+      const resolution = Number(req.query.res) || (0.1 / Math.pow(2, zNum - 2));
+      // Only allow fixed PostGIS grid functions (never interpolate user strings)
+      const gridFn = gridType === 'hex'
+        ? Prisma.raw("ST_HexagonGrid")
+        : Prisma.raw("ST_SquareGrid");
 
-      query = `
+      result = await prisma.$queryRaw`
         WITH grid AS (
-          SELECT 
-            ${isHex ? 'ST_HexagonGrid' : 'ST_SquareGrid'}($${paramIdx++}, geometry) as geom, 
+          SELECT
+            ${gridFn}(${resolution}, geometry) as geom,
             "value", "properties"
           FROM "Feature"
-          WHERE "datasetId" = $4
-            AND geometry && ST_TileEnvelope($1, $2, $3)
-            AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
-      `;
-      params.push(resolution);
-
-      if (cats.length > 0) {
-        query += ` AND "category" = ANY($${paramIdx++})`;
-        params.push(cats);
-      }
-      if (search) {
-        query += ` AND "properties"::text ILIKE $${paramIdx++}`;
-        params.push(`%${search}%`);
-      }
-
-      query += `
+          WHERE "datasetId" = ${id}
+            AND geometry && ST_TileEnvelope(${zNum}, ${xNum}, ${yNum})
+            AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
+            ${extraFilters}
         ),
         mvt_geom AS (
           SELECT
-            ST_AsMVTGeom(geom, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
+            ST_AsMVTGeom(geom, ST_TileEnvelope(${zNum}, ${xNum}, ${yNum}), 4096, 64, true) AS geom,
             jsonb_build_object('value', SUM("value"), 'count', COUNT(*)) as props
           FROM grid
           GROUP BY geom
         )
-        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
+        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
       `;
     } else {
-      query = `
+      result = await prisma.$queryRaw`
         WITH mvt_geom AS (
           SELECT
-            ST_AsMVTGeom(geometry, ST_TileEnvelope($1, $2, $3), 4096, 64, true) AS geom,
-            CASE 
+            ST_AsMVTGeom(geometry, ST_TileEnvelope(${zNum}, ${xNum}, ${yNum}), 4096, 64, true) AS geom,
+            CASE
               WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category")
-              ELSE jsonb_build_object('value', "value", 'category', "category") || properties 
+              ELSE jsonb_build_object('value', "value", 'category', "category") || properties
             END as props
           FROM "Feature"
-          WHERE "datasetId" = $4
-            AND geometry && ST_TileEnvelope($1, $2, $3)
-            AND ("value" IS NULL OR ("value" >= $5 AND "value" <= $6))
-      `;
-
-      if (cats.length > 0) {
-        query += ` AND "category" = ANY($${paramIdx++})`;
-        params.push(cats);
-      }
-      if (search) {
-        query += ` AND "properties"::text ILIKE $${paramIdx++}`;
-        params.push(`%${search}%`);
-      }
-
-      query += `
+          WHERE "datasetId" = ${id}
+            AND geometry && ST_TileEnvelope(${zNum}, ${xNum}, ${yNum})
+            AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
+            ${extraFilters}
         )
-        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom;
+        SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
       `;
     }
 
-    const result = await prisma.$queryRawUnsafe(query, ...params);
-    const buffer = (result as any)[0]?.mvt;
+    const buffer = result[0]?.mvt;
 
     if (!buffer || buffer.length === 0) {
       return res.status(204).send();
@@ -533,7 +586,7 @@ app.get("/datasets/:id/stats", authenticateToken as any, validateRequest(uuidPar
     redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch((err: Error) => logger.error({ err }, "Failed to cache tile to Redis"));
 
     res.setHeader("Content-Type", "application/x-protobuf");
-    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Cache-Control", "private, max-age=60");
     res.send(buffer);
     } catch (error) {
     logger.error({ err: error }, "Tile generation error");
@@ -557,39 +610,11 @@ app.post("/datasets", authenticateToken as any, validateRequest(datasetCreateSch
       },
     });
 
-    // Ingest features into the Feature table
+    // Ingest features into the Feature table (parameterized batches)
     if (Array.isArray(data) && data.length > 0) {
       const BATCH_SIZE = 1000;
       for (let i = 0; i < data.length; i += BATCH_SIZE) {
-        const batch = data.slice(i, i + BATCH_SIZE);
-        
-        const values: any[] = [];
-        const placeholders: string[] = [];
-        
-        batch.forEach((item: any, idx: number) => {
-          const base = idx * 6;
-          const id = crypto.randomUUID();
-          const geometry = item.geometry || {
-            type: "Point",
-            coordinates: [item.lng, item.lat]
-          };
-          
-          placeholders.push(`($${base + 1}, $${base + 2}, ST_SetSRID(ST_GeomFromGeoJSON($${base + 3}), 4326), $${base + 4}, $${base + 5}, $${base + 6})`);
-          values.push(
-            id,
-            dataset.id,
-            JSON.stringify(geometry),
-            JSON.stringify(item.metadata || {}),
-            item.value || null,
-            item.category || null
-          );
-        });
-
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
-           VALUES ${placeholders.join(", ")}`,
-          ...values
-        );
+        await insertFeatureBatch(dataset.id, data.slice(i, i + BATCH_SIZE));
       }
     }
 
@@ -622,12 +647,12 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
       return res.status(404).json({ error: "Source dataset not found or access denied" });
     }
 
-    // Fetch features from DB
-    const featuresFromDb = await prisma.$queryRawUnsafe(`
-      SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category 
-      FROM "Feature" 
-      WHERE "datasetId" = $1
-    `, sourceDatasetId);
+    // Fetch features from DB (parameterized)
+    const featuresFromDb = await prisma.$queryRaw`
+      SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+    `;
 
     const sourceData = (featuresFromDb as any[]).map(f => ({
       ...f.properties,
@@ -656,41 +681,28 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
     const pointFC = turf.featureCollection(pointFeatures) as any;
 
     if (type === 'aggregation') {
-      // High-performance PostGIS Aggregation
+      // High-performance PostGIS Aggregation (parameterized; grid fn is a fixed identifier)
       const resolution = parseFloat(gridResolution as string);
       const isHex = targetGridType === 'hex';
-      
-      const aggQuery = isHex ? `
+      const gridFn = isHex ? Prisma.raw("ST_HexagonGrid") : Prisma.raw("ST_SquareGrid");
+      // resolution for ST_HexagonGrid is in degrees if the CRS is 4326.
+      // gridResolution 4 -> approx 0.1 degrees
+      const spatialRes = isHex ? (0.5 / Math.pow(2, resolution - 2)) : (1 / Math.pow(2, resolution - 2));
+      const aggField = aggregationField || "";
+
+      const gridResults = await prisma.$queryRaw`
         WITH grid AS (
-          SELECT ST_HexagonGrid($1, geometry) as geom, "value", "properties"
+          SELECT ${gridFn}(${spatialRes}, geometry) as geom, "value", "properties"
           FROM "Feature"
-          WHERE "datasetId" = $2
+          WHERE "datasetId" = ${sourceDatasetId}
         )
-        SELECT 
+        SELECT
           ST_AsGeoJSON(geom)::json as geometry,
-          SUM(COALESCE(("properties"->>$3)::numeric, "value", 0)) as value,
-          COUNT(*) as count
-        FROM grid
-        GROUP BY geom
-      ` : `
-        WITH grid AS (
-          SELECT ST_SquareGrid($1, geometry) as geom, "value", "properties"
-          FROM "Feature"
-          WHERE "datasetId" = $2
-        )
-        SELECT 
-          ST_AsGeoJSON(geom)::json as geometry,
-          SUM(COALESCE(("properties"->>$3)::numeric, "value", 0)) as value,
+          SUM(COALESCE(("properties"->>${aggField})::numeric, "value", 0)) as value,
           COUNT(*) as count
         FROM grid
         GROUP BY geom
       `;
-
-      // resolution for ST_HexagonGrid is in degrees if the CRS is 4326. 
-      // gridResolution 4 -> approx 0.1 degrees
-      const spatialRes = isHex ? (0.5 / Math.pow(2, resolution - 2)) : (1 / Math.pow(2, resolution - 2));
-
-      const gridResults = await prisma.$queryRawUnsafe(aggQuery, spatialRes, sourceDatasetId, aggregationField || "");
 
       resultGeoJson = {
         type: "FeatureCollection",
@@ -762,33 +774,17 @@ app.post("/datasets/:id/spatial-tool", authenticateToken as any, validateRequest
         }
       });
 
-      // Persist features
+      // Persist features (parameterized batches)
       const features = resultGeoJson.features;
       const BATCH_SIZE = 1000;
       for (let i = 0; i < features.length; i += BATCH_SIZE) {
-        const batch = features.slice(i, i + BATCH_SIZE);
-        const values: any[] = [];
-        const placeholders: string[] = [];
-        
-        batch.forEach((f: any, idx: number) => {
-          const base = idx * 6;
-          const id = crypto.randomUUID();
-          placeholders.push(`($${base + 1}, $${base + 2}, ST_SetSRID(ST_GeomFromGeoJSON($${base + 3}), 4326), $${base + 4}, $${base + 5}, $${base + 6})`);
-          values.push(
-            id,
-            newDataset.id,
-            JSON.stringify(f.geometry),
-            JSON.stringify(f.properties || {}),
-            f.properties?.value || null,
-            f.properties?.category || null
-          );
-        });
-
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO "Feature" ("id", "datasetId", "geometry", "properties", "value", "category") 
-           VALUES ${placeholders.join(", ")}`,
-          ...values
-        );
+        const batch = features.slice(i, i + BATCH_SIZE).map((f: any) => ({
+          geometry: f.geometry,
+          properties: f.properties || {},
+          value: f.properties?.value ?? null,
+          category: f.properties?.category ?? null,
+        }));
+        await insertFeatureBatch(newDataset.id, batch);
       }
 
       return res.status(201).json(newDataset);

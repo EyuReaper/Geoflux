@@ -60,10 +60,24 @@ Ensure you configure SSL termination (e.g., via Certbot/Let's Encrypt) as shown 
 
 ## 5. Docker Deployment
 
-GeoFlux is containerized for easy deployment. Use `docker-compose.prod.yml` (if available) or the provided `Dockerfile`s.
+GeoFlux is containerized for easy deployment. Compose runs **PostGIS**, **Redis**, **backend**, and **frontend**, with healthchecks so the API only starts after DB and Redis are ready.
 
 ```bash
-# Example build command
+# 1. Configure secrets (required)
+cp .env.example .env
+# Edit .env — set JWT_SECRET and POSTGRES_PASSWORD to strong values
+
+# 2. Build and start the stack
+docker compose up --build -d
+```
+
+Required env vars (see root `.env.example`):
+- `JWT_SECRET` — min 16 characters; used to sign auth tokens
+- `POSTGRES_PASSWORD` — database password
+- `REDIS_URL` is set automatically to `redis://redis:6379` inside Compose
+
+```bash
+# Manual image builds (without Compose)
 docker build -t geoflux-backend ./backend
 docker build -t geoflux-frontend ./frontend
 ```
