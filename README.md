@@ -63,7 +63,7 @@ npm run dev
 
 Default UI URL: `http://localhost:5173`
 
-Note: frontend currently uses `http://localhost:4000` as API base URL in source code.
+The frontend uses `VITE_API_URL` env var for the API base URL (defaults to `http://localhost:4000`).
 
 ## 3) Build and Test
 

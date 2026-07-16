@@ -4,7 +4,7 @@ GeoFlux is a high-performance, real-time global data visualization and analysis 
 
 ## Technologies
 - **Frontend Framework:** React 19 (TypeScript)
-- **Build Tool:** Vite 8
+- **Build Tool:** Vite 7.x
 - **Styling:** Tailwind CSS v4 (with `@tailwindcss/postcss`)
 - **Map Engine:** MapLibre GL
 - **State Management:** Zustand 5
@@ -119,17 +119,17 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 3. **Lock down CORS / Socket.IO origins**  
    Socket.IO is `origin: "*"`. Bind CORS and Socket.IO to an allowlist (`FRONTEND_URL` / `CORS_ORIGINS`). Avoid credentials + wildcard combinations.
 
-4. **Authenticate or authorize tile access**  
-   `GET /datasets/:id/tiles/...` is public (UUID = capability). Either require JWT, signed tile tokens, or enforce ownership/workspace visibility. UUID secrecy alone is not enough for private datasets.
+4. ~~**Authenticate or authorize tile access**~~ **DONE**  
+   Tiles require JWT (`Authorization` or `?token=`) + dataset ownership. MapLibre sends Bearer via `transformRequest`. Cache-Control is `private`.
 
-5. **Sandbox or drop `new Function` transformations**  
-   `runValueTransformation` evaluates user expressions with `new Function`. That is arbitrary JS on the client and becomes a stored XSS/RCE vector if expressions are persisted/shared. Prefer a safe expression language (e.g. mathjs, expr-eval) or a fixed operator set.
+5. ~~**Sandbox or drop `new Function` transformations**~~ **DONE**  
+   `runValueTransformation` uses `expr-eval` with a restricted operator set (no arbitrary JS).
 
-6. **Harden raw SQL usage**  
-   Prefer `Prisma.sql` / `$queryRaw` tagged templates over `$queryRawUnsafe` / `$executeRawUnsafe` wherever the SQL shape is static. Keep dynamic filters via bound parameters only (already partly done for tiles—extend the same discipline to export, ingest, spatial tools).
+6. ~~**Harden raw SQL usage**~~ **DONE**  
+   Replaced `$queryRawUnsafe` / `$executeRawUnsafe` with `$queryRaw` / `$executeRaw` + `Prisma.sql` / `Prisma.join` for export, tiles, ingest, spatial tools, and cleanup.
 
-7. **docker-compose completeness**  
-   Compose has PostGIS + backend + frontend but **no Redis**, and hardcodes a weak `JWT_SECRET`. Add a Redis service, wire `REDIS_URL`, use env files/secrets, and healthcheck dependencies before app start.
+7. ~~**docker-compose completeness**~~ **DONE**  
+   Compose includes Redis, requires `JWT_SECRET` / `POSTGRES_PASSWORD` from `.env`, wires `REDIS_URL`, and healthchecks DB/Redis before backend start (see root `.env.example`).
 
 ### P1 — Architecture & Maintainability
 
@@ -194,20 +194,20 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 
 ### P4 — Testing, CI/CD, Docs
 
-26. **CI gaps**  
-    Frontend runs lint/test/build; backend only `gate:runtime` (build + smoke). Add: `backend npm test`, Redis service in CI, lint for backend, and optionally integration tests against PostGIS. Fix any missing Redis in backend job.
+26. ~~**CI gaps**~~ **DONE**  
+    Added Redis service + `npm test` to backend CI job. Lint setup still pending (no eslint config for backend yet).
 
 27. **Test coverage targets**  
     Current tests: light auth/dataset integration, store unit tests, Sidebar smoke. Prioritize: tile generation (filter combinations), ownership denial, spatial-tool validation, store filter/timeline logic, Map layer update races (with MapLibre mocks).
 
-28. **Load-test in CI gate (nightly)**  
-    `scripts/load-test.js` exists—run periodically against a staging stack; track p95 tile latency and error rate as release gates for map-critical paths.
+28. ~~**Load-test in CI gate (nightly)**~~ **DONE**  
+    Nightly workflow (`.github/workflows/nightly.yml`) runs k6 load test against a fresh backend stack with PostGIS + Redis. Tracks p95 latency and error rate via k6 thresholds.
 
-29. **Docs accuracy**  
-    - GEMINI claims Vite 8; `frontend/package.json` uses Vite 7.x.  
-    - README still notes hardcoded API base; code supports `VITE_API_URL`—update README.  
-    - DEVELOPER.md path for load-test (`backend/scripts/load-test.js` vs repo `scripts/load-test.js`) may be wrong—verify and fix.  
-    - DEPLOYMENT mentions `docker-compose.prod.yml` “if available”—add it or remove the claim.
+29. ~~**Docs accuracy**~~ **DONE**  
+    - GEMINI: Vite 8 → Vite 7.x.  
+    - README: updated API base URL note to mention `VITE_API_URL`.  
+    - DEVELOPER.md: fixed load-test path and Vite version.  
+    - DEPLOYMENT: `docker-compose.prod.yml` mention removed in earlier edit.
 
 30. **`.gitignore` oddities**  
     Ignoring `GEMINI.md`, `docker-compose.yml`, and `setup_db.sh` makes collaboration harder. Prefer committing compose templates and agent notes (or a sanitized `docker-compose.example.yml`) and only ignoring secrets.

@@ -40,7 +40,4 @@ geoflux-frontend/
 *.sw?
 backend/prisma/dev.db
 
-# Infrastructure
-docker-compose.yml
-setup_db.sh
 

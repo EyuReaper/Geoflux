@@ -8,7 +8,7 @@ GeoFlux is a high-performance, real-time spatial data visualization and analysis
 
 GeoFlux follows a decoupled **Frontend-Backend-Cache-Database** architecture:
 
-- **Frontend:** React 19 + Vite 8 + Zustand 5 + MapLibre GL.
+- **Frontend:** React 19 + Vite 7.x + Zustand 5 + MapLibre GL.
 - **Backend:** Node.js (Express) + Prisma ORM.
 - **Database:** PostgreSQL with **PostGIS** extension for spatial queries.
 - **Cache:** Redis for MVT tile caching and cross-instance invalidation.
@@ -30,7 +30,7 @@ GeoFlux follows a decoupled **Frontend-Backend-Cache-Database** architecture:
 - `src/utils/validation.ts`: Zod schemas for strict API request validation.
 - `prisma/schema.prisma`: The source of truth for the database schema, including PostGIS geometry types.
 - `scripts/smoke-runtime.mjs`: A lightweight health check for CI/CD.
-- `scripts/load-test.js`: k6 script for stress-testing the tile server.
+- `scripts/load-test.js`: k6 script for stress-testing the tile server (root `scripts/`).
 
 ### Frontend (`/frontend`)
 - `src/store/useStore.ts`: Global state management (Zustand). Handles data fetching, UI state, and map configurations.
@@ -84,7 +84,7 @@ cd backend && npm run test
 cd frontend && npm run test
 
 # Load Testing (Requires k6)
-k6 run backend/scripts/load-test.js
+k6 run scripts/load-test.js
 ```
 
 ---
