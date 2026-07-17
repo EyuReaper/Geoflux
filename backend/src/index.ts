@@ -24,6 +24,7 @@ import { redis, pubsub, getTileKey, getInvalidationChannel, TILE_CACHE_TTL, CACH
 import { startMaintenanceWorker } from "./utils/cleanup.js";
 import { getOpenApiDocumentation } from "./swagger.js";
 import swaggerUi from "swagger-ui-express";
+import { requireJwtSecret, resolveAllowedOrigins } from "./utils/security.js";
 import { 
   validateRequest, 
   registerSchema, 
@@ -41,25 +42,26 @@ const { PrismaClient, Prisma } = require(`${process.cwd()}/prisma/generated/pris
 
 const app = express();
 const httpServer = createServer(app);
-const allowedOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(",").map(s => s.trim())
-  : process.env.FRONTEND_URL
-    ? [process.env.FRONTEND_URL]
-    : ["http://localhost:5173"];
+
+let JWT_SECRET: string;
+let allowedOrigins: string[];
+try {
+  JWT_SECRET = requireJwtSecret();
+  allowedOrigins = resolveAllowedOrigins();
+} catch (err) {
+  logger.fatal({ err }, err instanceof Error ? err.message : "Security configuration failed");
+  process.exit(1);
+}
 
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true,
   }
 });
 
 const port = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 16) {
-  logger.fatal("JWT_SECRET environment variable is required (min 16 characters)");
-  process.exit(1);
-}
 
 // Initialize Prisma
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -217,7 +219,7 @@ app.use(pinoHttp({ logger }));
 app.use(helmet());
 app.use(cors({
   origin: allowedOrigins,
-  credentials: true
+  credentials: true, // only safe with an explicit allowlist (never "*")
 }));
 app.use(express.json({ limit: "50mb" }));
 

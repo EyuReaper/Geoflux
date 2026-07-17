@@ -110,14 +110,14 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 
 ### P0 — Correctness & Security
 
-1. **Fix Docker production start path**  
-   `backend/Dockerfile` runs `node dist/index.js`, but `tsc` emits to `dist/src/index.js` and `package.json` `start` already uses that path. Image will fail at boot until aligned (match `start` or adjust `tsconfig` `outDir`/`rootDir`).
+1. ~~**Fix Docker production start path**~~ **DONE**  
+   `backend/Dockerfile` and `package.json` `start` both run `node dist/src/index.js` (matches `tsc` emit under `rootDir: "."`).
 
-2. **Remove JWT secret fallbacks**  
-   Both `index.ts` and `middleware/auth.ts` fall back to `"fallback_secret"`. In production, refuse to start if `JWT_SECRET` is missing or weak.
+2. ~~**Remove JWT secret fallbacks**~~ **DONE**  
+   No `fallback_secret`. `requireJwtSecret()` (shared by `index.ts` + `auth.ts`) refuses missing/short secrets always; refuses known weak placeholders in production.
 
-3. **Lock down CORS / Socket.IO origins**  
-   Socket.IO is `origin: "*"`. Bind CORS and Socket.IO to an allowlist (`FRONTEND_URL` / `CORS_ORIGINS`). Avoid credentials + wildcard combinations.
+3. ~~**Lock down CORS / Socket.IO origins**~~ **DONE**  
+   Express CORS and Socket.IO share `resolveAllowedOrigins()` from `CORS_ORIGINS` / `FRONTEND_URL`. Production requires an explicit allowlist; `*` is rejected (incompatible with `credentials: true`).
 
 4. ~~**Authenticate or authorize tile access**~~ **DONE**  
    Tiles require JWT (`Authorization` or `?token=`) + dataset ownership. MapLibre sends Bearer via `transformRequest`. Cache-Control is `private`.
@@ -191,26 +191,6 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 
 25. **Accessibility & map chrome**  
     Keyboard control for timeline, focus traps in modals, ARIA labels on panels, and reduced-motion preference for playback animations.
-
-### P4 — Testing, CI/CD, Docs
-
-26. ~~**CI gaps**~~ **DONE**  
-    Added Redis service + `npm test` to backend CI job. Lint setup still pending (no eslint config for backend yet).
-
-27. **Test coverage targets**  
-    Current tests: light auth/dataset integration, store unit tests, Sidebar smoke. Prioritize: tile generation (filter combinations), ownership denial, spatial-tool validation, store filter/timeline logic, Map layer update races (with MapLibre mocks).
-
-28. ~~**Load-test in CI gate (nightly)**~~ **DONE**  
-    Nightly workflow (`.github/workflows/nightly.yml`) runs k6 load test against a fresh backend stack with PostGIS + Redis. Tracks p95 latency and error rate via k6 thresholds.
-
-29. ~~**Docs accuracy**~~ **DONE**  
-    - GEMINI: Vite 8 → Vite 7.x.  
-    - README: updated API base URL note to mention `VITE_API_URL`.  
-    - DEVELOPER.md: fixed load-test path and Vite version.  
-    - DEPLOYMENT: `docker-compose.prod.yml` mention removed in earlier edit.
-
-30. **`.gitignore` oddities**  
-    Ignoring `GEMINI.md`, `docker-compose.yml`, and `setup_db.sh` makes collaboration harder. Prefer committing compose templates and agent notes (or a sanitized `docker-compose.example.yml`) and only ignoring secrets.
 
 ### Suggested priority order (practical)
 

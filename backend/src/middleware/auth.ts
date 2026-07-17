@@ -1,9 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { requireJwtSecret } from '../utils/security.js';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required');
+// Lazy resolve — no fallback secrets. Startup validation lives in index.ts.
+let cachedSecret: string | undefined;
+function getJwtSecret(): string {
+  if (!cachedSecret) {
+    cachedSecret = requireJwtSecret();
+  }
+  return cachedSecret;
 }
 
 export interface AuthRequest extends Request {
@@ -42,10 +47,14 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { id: string; email: string };
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
+    // Missing/weak JWT_SECRET surfaces as a startup/config error, not a 403.
+    if (err instanceof Error && err.message.includes('JWT_SECRET')) {
+      throw err;
+    }
     res.status(403).json({ error: 'Invalid or expired token.' });
   }
 };
