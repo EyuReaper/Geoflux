@@ -148,3 +148,85 @@ export type MapStyle = {
   gridType: 'square' | 'hex';
   gridResolution: number;
 };
+
+export interface GeoFluxState {
+  auth: AuthState
+  datasets: Dataset[]
+  activeDatasetId: string | null
+  transformations: Transformation[]
+  data: DataPoint[]
+  filteredData: DataPoint[]
+  viewportFilteredData: DataPoint[]
+  rawData: Record<string, unknown>[]
+  availableFields: string[]
+  fieldMapping: FieldMapping
+  isLoading: boolean
+  error: string | null
+  workspaces: Workspace[]
+  comparisonDatasetIds: string[]
+  activeModes: VisualizationMode[]
+  isSidebarOpen: boolean
+  isRightPanelOpen: boolean
+  isInspectorOpen: boolean
+  isLive: boolean
+  selectedEntity: InspectorEntity | null
+  mapState: MapState
+  mapStyle: MapStyle
+  mapStyleType: 'dark' | 'light'
+  filters: FilterState
+  timeline: TimelineState
+  regionFocus: RegionFocus | null
+  isRegionLoading: boolean
+  regionError: string | null
+  spatialAggregationConfig: SpatialToolConfig
+  aggregatedDatasetId: string | null
+
+  login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, name?: string) => Promise<void>
+  logout: () => void
+  fetchDatasets: () => Promise<void>
+  addDataset: (name: string, rawData: Record<string, unknown>[]) => void
+  removeDataset: (id: string) => void
+  toggleDatasetVisibility: (id: string) => void
+  setActiveDataset: (id: string | null) => void
+  setViewportFilteredData: (data: DataPoint[]) => void
+  exportDataset: (id: string, format: 'geojson' | 'csv' | 'shp') => Promise<void>
+  addTransformation: (name: string, expression: string) => void
+  removeTransformation: (id: string) => void
+  toggleTransformation: (id: string) => void
+  setData: (data: DataPoint[]) => void
+  setRawData: (rawData: Record<string, unknown>[]) => void
+  setFieldMapping: (mapping: Partial<FieldMapping>) => void
+  setLoading: (loading: boolean) => void
+  setError: (error: string | null) => void
+  applyMapping: () => void
+  updateGlobalData: () => void
+  toggleComparisonDataset: (id: string) => void
+  fetchWorkspaces: () => Promise<void>
+  loadWorkspace: (id: string) => Promise<void>
+  saveWorkspace: (name: string) => Promise<void>
+  toggleWorkspaceSharing: (id: string, isPublic: boolean) => Promise<void>
+  setMapState: (state: Partial<MapState>) => void
+  updateMapStyle: (style: Partial<MapStyle>) => void
+  setMapStyleType: (type: 'dark' | 'light') => void
+  setFilters: (filters: Partial<FilterState>) => void
+  focusRegion: (query: string) => Promise<void>
+  clearRegionFocus: () => void
+  toggleMode: (mode: VisualizationMode) => void
+  setTimeline: (timeline: Partial<TimelineState>) => void
+  togglePlayback: () => void
+  tickTimeline: () => void
+  stepTimeline: (steps: number) => void
+  setSpatialAggregationConfig: (config: Partial<SpatialToolConfig>) => void
+  performSpatialAggregation: () => Promise<void>
+  clearSpatialAggregation: () => void
+  toggleSidebar: () => void
+  toggleRightPanel: () => void
+  toggleLive: () => void
+  setSelectedEntity: (entity: InspectorEntity | null) => void
+  closeInspector: () => void
+  getShareableUrl: () => string
+  applySnapshot: (encoded: string) => void
+  updateDataPoints: () => void
+  reset: () => void
+}

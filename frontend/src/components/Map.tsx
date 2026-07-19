@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import * as h3 from 'h3-js'
-import { useStore, API_URL } from '../store/useStore'
+import { useStore, API_URL } from '../store/useStore.ts'
+import { apiTileUrlTemplate } from '../lib/api.ts'
 import type { DataPoint } from '../types'
 
 const STYLES = {
@@ -202,7 +203,7 @@ const Map = () => {
           params.append('res', resParam.toString());
         }
 
-        const tileUrl = `${API_URL}/datasets/${ds.id}/tiles/{z}/{x}/{y}.pbf?${params.toString()}`;
+        const tileUrl = apiTileUrlTemplate(ds.id, Object.fromEntries(params.entries()))
         const existingSource = mapInstance.getSource(sourceId)
 
         if (!existingSource) {

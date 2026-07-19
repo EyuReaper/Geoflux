@@ -16,6 +16,26 @@ export interface AuthRequest extends Request {
     id: string;
     email: string;
   };
+  /** Populated by requireDatasetOwner */
+  dataset?: {
+    id: string;
+    name: string;
+    color: string;
+    type: string;
+    userId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+  /** Populated by requireWorkspaceOwner / requireWorkspaceAccess */
+  workspace?: {
+    id: string;
+    name: string;
+    config: unknown;
+    isPublic: boolean;
+    userId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  };
 }
 
 /**
@@ -50,10 +70,10 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     const decoded = jwt.verify(token, getJwtSecret()) as { id: string; email: string };
     req.user = decoded;
     next();
-  } catch (err) {
+  } catch (error: unknown) {
     // Missing/weak JWT_SECRET surfaces as a startup/config error, not a 403.
-    if (err instanceof Error && err.message.includes('JWT_SECRET')) {
-      throw err;
+    if (error instanceof Error && error.message.includes('JWT_SECRET')) {
+      throw error;
     }
     res.status(403).json({ error: 'Invalid or expired token.' });
   }

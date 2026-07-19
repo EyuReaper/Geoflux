@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
-import { app, prisma, redis } from "../src/index.js";
+import { app, redis } from "../src/index.js";
+import { prisma } from "../src/db.js";
 
 // Optional: Mock Redis if it's not available in the environment
 vi.mock("../src/utils/redis.js", async (importOriginal) => {
-  const actual = await importOriginal() as any;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     redis: {
@@ -15,14 +16,17 @@ vi.mock("../src/utils/redis.js", async (importOriginal) => {
       quit: vi.fn().mockResolvedValue("OK"),
       getBuffer: vi.fn(),
       publish: vi.fn().mockResolvedValue(1),
+      scan: vi.fn().mockResolvedValue(["0", []]),
     },
     pubsub: {
       subscribe: vi.fn(),
       on: vi.fn(),
       quit: vi.fn().mockResolvedValue("OK"),
-    }
+    },
   };
 });
+
+const API = "/api/v1";
 
 describe("Integration Tests", () => {
   beforeAll(async () => {
@@ -31,21 +35,20 @@ describe("Integration Tests", () => {
 
   afterAll(async () => {
     await prisma.$disconnect();
-    // Use the mocked redis quit
     await redis.quit();
   }, 30000);
 
   describe("Health Check", () => {
     it("should return 200 and healthy status", async () => {
       const response = await request(app).get("/health");
-      
+
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         status: "ok",
         services: {
           database: "up",
-          redis: "up"
-        }
+          redis: "up",
+        },
       });
     }, 20000);
   });
@@ -54,13 +57,11 @@ describe("Integration Tests", () => {
     const testUser = {
       email: `test-${Date.now()}@example.com`,
       password: "password123",
-      name: "Test User"
+      name: "Test User",
     };
 
     it("should register a new user", async () => {
-      const response = await request(app)
-        .post("/register")
-        .send(testUser);
+      const response = await request(app).post(`${API}/register`).send(testUser);
 
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty("token");
@@ -68,24 +69,20 @@ describe("Integration Tests", () => {
     });
 
     it("should login the registered user", async () => {
-      const response = await request(app)
-        .post("/login")
-        .send({
-          email: testUser.email,
-          password: testUser.password
-        });
+      const response = await request(app).post(`${API}/login`).send({
+        email: testUser.email,
+        password: testUser.password,
+      });
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty("token");
     });
 
     it("should fail login with wrong password", async () => {
-      const response = await request(app)
-        .post("/login")
-        .send({
-          email: testUser.email,
-          password: "wrongpassword"
-        });
+      const response = await request(app).post(`${API}/login`).send({
+        email: testUser.email,
+        password: "wrongpassword",
+      });
 
       expect(response.status).toBe(401);
     });
@@ -95,31 +92,27 @@ describe("Integration Tests", () => {
     let token: string;
 
     beforeAll(async () => {
-      const loginRes = await request(app)
-        .post("/register")
-        .send({
-          email: `protected-${Date.now()}@example.com`,
-          password: "password123"
-        });
+      const loginRes = await request(app).post(`${API}/register`).send({
+        email: `protected-${Date.now()}@example.com`,
+        password: "password123",
+      });
       token = loginRes.body.token;
     });
 
     it("should return 401 if no token provided", async () => {
-      const response = await request(app).get("/datasets");
+      const response = await request(app).get(`${API}/datasets`);
       expect(response.status).toBe(401);
     });
 
     it("should create a new dataset", async () => {
       const response = await request(app)
-        .post("/datasets")
+        .post(`${API}/datasets`)
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "Test Dataset",
           color: "#ff0000",
           type: "points",
-          data: [
-            { lat: 10, lng: 20, value: 100, category: "A" }
-          ]
+          data: [{ lat: 10, lng: 20, value: 100, category: "A" }],
         });
 
       expect(response.status).toBe(201);
@@ -129,7 +122,7 @@ describe("Integration Tests", () => {
 
     it("should reject unauthenticated tile access", async () => {
       const createRes = await request(app)
-        .post("/datasets")
+        .post(`${API}/datasets`)
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "Tile Auth Dataset",
@@ -142,12 +135,12 @@ describe("Integration Tests", () => {
       const datasetId = createRes.body.id;
 
       const unauth = await request(app).get(
-        `/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`
+        `${API}/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`
       );
       expect(unauth.status).toBe(401);
 
       const auth = await request(app)
-        .get(`/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`)
+        .get(`${API}/datasets/${datasetId}/tiles/0/0/0.pbf?min=0&max=100&cats=&search=`)
         .set("Authorization", `Bearer ${token}`);
       // 200 (tile), 204 (empty), or 500 if PostGIS tile helpers unavailable in CI
       expect([200, 204, 500]).toContain(auth.status);

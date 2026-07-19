@@ -1,4 +1,4 @@
-import { prisma } from "../index.js";
+import { prisma } from "../db.js";
 import { logger } from "./logger.js";
 
 /**
@@ -24,14 +24,14 @@ export const startMaintenanceWorker = () => {
           features: { none: {} }
         },
         select: { id: true, name: true }
-      });
+      }) as Array<{ id: string; name: string }>;
 
       if (emptyDatasets.length > 0) {
-        const ids = emptyDatasets.map((d: any) => d.id);
+        const ids = emptyDatasets.map((d) => d.id);
         await prisma.dataset.deleteMany({
           where: { id: { in: ids } }
         });
-        logger.info({ count: emptyDatasets.length, names: emptyDatasets.map((d: any) => d.name) }, "Purged stale empty datasets");
+        logger.info({ count: emptyDatasets.length, names: emptyDatasets.map((d) => d.name) }, "Purged stale empty datasets");
       }
 
       // 2. Validate Spatial Integrity
@@ -53,8 +53,8 @@ export const startMaintenanceWorker = () => {
         uptime: `${Math.round(process.uptime())}s`
       }, "System health snapshot");
 
-    } catch (err) {
-      logger.error({ err }, "Maintenance worker error");
+    } catch (error: unknown) {
+      logger.error({ err: error }, "Maintenance worker error");
     }
   }, INTERVAL);
 };

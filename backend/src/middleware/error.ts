@@ -4,19 +4,18 @@ import { z } from 'zod';
 
 export interface ApiError extends Error {
   status?: number;
-  details?: any;
+  details?: unknown;
 }
 
 export const errorHandler = (
   err: ApiError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) => {
   const status = err.status || 500;
   const message = err.message || 'Internal Server Error';
 
-  // Log error
   logger.error({
     err: {
       message: err.message,
@@ -31,13 +30,13 @@ export const errorHandler = (
     },
   }, message);
 
-  // Zod validation errors are handled by validateRequest, but this is a fallback
+  // Zod validation errors are handled by validateRequest; this is a fallback
   if (err instanceof z.ZodError) {
     return res.status(400).json({
       error: 'Validation failed',
-      details: err.issues.map((e: any) => ({
-        path: e.path.join('.'),
-        message: e.message,
+      details: err.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
       })),
     });
   }

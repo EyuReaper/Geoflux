@@ -56,7 +56,7 @@ registry.registerPath({
 // --- Auth Routes ---
 registry.registerPath({
   method: "post",
-  path: "/register",
+  path: "/api/v1/register",
   summary: "Register a new user",
   request: {
     body: {
@@ -76,7 +76,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/login",
+  path: "/api/v1/login",
   summary: "Login",
   request: {
     body: {
@@ -97,7 +97,7 @@ registry.registerPath({
 // --- Dataset Routes ---
 registry.registerPath({
   method: "get",
-  path: "/datasets",
+  path: "/api/v1/datasets",
   summary: "Get all datasets for the authenticated user",
   security: [{ [bearerAuth.name]: [] }],
   responses: {
@@ -109,7 +109,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/datasets",
+  path: "/api/v1/datasets",
   summary: "Create a new dataset",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -130,7 +130,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/datasets/{id}",
+  path: "/api/v1/datasets/{id}",
   summary: "Get a specific dataset",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -144,7 +144,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/datasets/{id}/stats",
+  path: "/api/v1/datasets/{id}/stats",
   summary: "Get statistics for a dataset",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -157,7 +157,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "delete",
-  path: "/datasets/{id}",
+  path: "/api/v1/datasets/{id}",
   summary: "Delete a dataset",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -170,7 +170,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/datasets/{id}/spatial-tool",
+  path: "/api/v1/datasets/{id}/spatial-tool",
   summary: "Perform spatial operations on a dataset",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -191,7 +191,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/datasets/{id}/tiles/{z}/{x}/{y}.pbf",
+  path: "/api/v1/datasets/{id}/tiles/{z}/{x}/{y}.pbf",
   summary: "Get vector tiles for a dataset",
   description:
     "Requires JWT via Authorization: Bearer <token> (preferred) or ?token= query param. Dataset must be owned by the authenticated user.",
@@ -220,7 +220,7 @@ registry.registerPath({
 // --- Workspace Routes ---
 registry.registerPath({
   method: "get",
-  path: "/workspaces",
+  path: "/api/v1/workspaces",
   summary: "Get all workspaces for the authenticated user",
   security: [{ [bearerAuth.name]: [] }],
   responses: {
@@ -230,7 +230,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/workspaces",
+  path: "/api/v1/workspaces",
   summary: "Create a new workspace",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -249,7 +249,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/workspaces/{id}",
+  path: "/api/v1/workspaces/{id}",
   summary: "Get a specific workspace",
   request: {
     params: uuidParamSchema.shape.params,
@@ -261,7 +261,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "patch",
-  path: "/workspaces/{id}/share",
+  path: "/api/v1/workspaces/{id}/share",
   summary: "Update workspace sharing settings",
   security: [{ [bearerAuth.name]: [] }],
   request: {
@@ -290,5 +290,6 @@ export const getOpenApiDocumentation = () => {
       description: "API documentation for the GeoFlux backend",
     },
     servers: [{ url: "/" }],
+    tags: [{ name: "v1", description: "API version 1" }],
   });
 };

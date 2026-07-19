@@ -108,51 +108,30 @@ npm run dev
 
 Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 LOC), Zustand store (`frontend/src/store/useStore.ts` ~1137 LOC), PostGIS MVT tiles, Redis cache, Docker/CI, and existing Next Steps (style manager, sliding-window timeline).
 
-### P0 — Correctness & Security
 
-1. ~~**Fix Docker production start path**~~ **DONE**  
-   `backend/Dockerfile` and `package.json` `start` both run `node dist/src/index.js` (matches `tsc` emit under `rootDir: "."`).
-
-2. ~~**Remove JWT secret fallbacks**~~ **DONE**  
-   No `fallback_secret`. `requireJwtSecret()` (shared by `index.ts` + `auth.ts`) refuses missing/short secrets always; refuses known weak placeholders in production.
-
-3. ~~**Lock down CORS / Socket.IO origins**~~ **DONE**  
-   Express CORS and Socket.IO share `resolveAllowedOrigins()` from `CORS_ORIGINS` / `FRONTEND_URL`. Production requires an explicit allowlist; `*` is rejected (incompatible with `credentials: true`).
-
-4. ~~**Authenticate or authorize tile access**~~ **DONE**  
-   Tiles require JWT (`Authorization` or `?token=`) + dataset ownership. MapLibre sends Bearer via `transformRequest`. Cache-Control is `private`.
-
-5. ~~**Sandbox or drop `new Function` transformations**~~ **DONE**  
-   `runValueTransformation` uses `expr-eval` with a restricted operator set (no arbitrary JS).
-
-6. ~~**Harden raw SQL usage**~~ **DONE**  
-   Replaced `$queryRawUnsafe` / `$executeRawUnsafe` with `$queryRaw` / `$executeRaw` + `Prisma.sql` / `Prisma.join` for export, tiles, ingest, spatial tools, and cleanup.
-
-7. ~~**docker-compose completeness**~~ **DONE**  
-   Compose includes Redis, requires `JWT_SECRET` / `POSTGRES_PASSWORD` from `.env`, wires `REDIS_URL`, and healthchecks DB/Redis before backend start (see root `.env.example`).
 
 ### P1 — Architecture & Maintainability
 
-8. **Split the backend god-file**  
-   Extract routers/services from `index.ts`: `routes/auth`, `routes/datasets`, `routes/tiles`, `routes/workspaces`, `routes/spatial`, plus `services/tileCache`, `services/ingest`, `services/spatial`. Keep `index.ts` as wiring only. Improves testability and reviewability.
+8. **Split the backend god-file** ✅ RESOLVED  
+   Extracted routers/services from `index.ts`: `routes/auth`, `routes/datasets`, `routes/tiles`, `routes/workspaces`, `routes/spatial`, plus `services/tileCache`, `services/ingest`, `services/spatial`. `index.ts` is now wiring only (96 lines).
 
-9. **Split the frontend Zustand store**  
-   `useStore.ts` owns auth, datasets, map, filters, timeline, spatial, websockets. Slice into domain stores (or Zustand slices): `authStore`, `datasetStore`, `mapStore`, `timelineStore`, with a thin composition layer. Reduces re-render coupling and makes unit tests tractable.
+9. **Split the frontend Zustand store** ✅ RESOLVED  
+   Sliced into domain stores: `authSlice`, `datasetSlice`, `workspaceSlice`, `mapSlice`, `timelineSlice`, `spatialSlice`, `uiSlice`, with a thin composition layer in `useStore.ts`.
 
-10. **API layering & versioning**  
-    Prefix routes with `/api/v1`, centralize fetch client on the frontend (auth header, error parsing, retries), and stop scattering `API_URL` + manual `fetch` across the store.
+10. **API layering & versioning** ✅ RESOLVED  
+    Routes prefixed with `/api/v1`. Centralized fetch client in `lib/api.ts` with auth headers, error parsing, retries. No scattered `API_URL` + manual `fetch` across the store.
 
-11. **Ownership checks as middleware**  
-    Dataset/workspace ownership is copy-pasted (`findUnique` + `userId !== req.user?.id`). Add `requireDatasetOwner` / `requireWorkspaceAccess` middleware to eliminate drift and missed checks (tiles currently skip ownership entirely).
+11. **Ownership checks as middleware** ✅ RESOLVED  
+    Added `requireDatasetOwner` / `requireWorkspaceOwner` / `requireWorkspaceAccess` middleware in `middleware/ownership.ts`. Applied to all dataset/workspace routes including tiles.
 
-12. **Remove dead dependencies**  
-    Frontend lists `leaflet` / `react-leaflet` while the map is MapLibre-only—drop unused packages. Audit backend for unused `@types/*` and dual runners (`ts-node` / `ts-node-dev` vs `tsx`).
+12. **Remove dead dependencies** ✅ RESOLVED  
+    Frontend had no `leaflet`/`react-leaflet` (already clean). Backend: moved `@types/pg` to devDependencies, removed `@types/socket.io` and `@types/express-rate-limit` (both ship their own types). No dual runners found.
 
-13. **Monorepo / root workspace tooling**  
-    No root `package.json`. Add npm/pnpm workspaces + scripts: `dev`, `test`, `lint`, `build` for both packages; shared ESLint/TS configs optional. Improves onboarding (docs currently imply separate installs only).
+13. **Monorepo / root workspace tooling** ✅ RESOLVED  
+    Added root `package.json` with npm workspaces (`frontend`, `backend`) and convenience scripts: `dev`, `build`, `test`, `lint` (with per-package variants).
 
-14. **Type hygiene**  
-    Widespread `as any`, `error: any`, and Zod `z.any()`. Prefer typed Prisma results, `unknown` + narrowing in catch blocks, and stricter Zod schemas for GeoJSON coordinates/metadata. Align GEMINI “avoid any” convention with enforcement (ESLint `@typescript-eslint/no-explicit-any` in CI).
+14. **Type hygiene** ✅ RESOLVED  
+    No `as any`, `error: any`, or `z.any()` found in source code. Standardized all backend catch blocks to explicit `catch (error: unknown)`. Added ESLint to backend with `@typescript-eslint/no-explicit-any: "error"`. Frontend enforces via `tseslint.configs.recommended`.
 
 ### P2 — Performance & Data Model
 

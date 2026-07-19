@@ -4,26 +4,62 @@ import type { Request, Response, NextFunction } from "express";
 
 extendZodWithOpenApi(z);
 
-export const validateRequest = (schema: z.ZodObject<any> | z.ZodTypeAny) => {
+/** GeoJSON position: [lng, lat] or [lng, lat, alt] */
+const positionSchema = z.union([
+  z.tuple([z.number(), z.number()]),
+  z.tuple([z.number(), z.number(), z.number()]),
+]);
+
+/** Recursive coordinate arrays for LineString / Polygon / Multi* */
+const coordinatesSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([positionSchema, z.array(coordinatesSchema)])
+);
+
+const geoJsonGeometrySchema = z.object({
+  type: z.enum([
+    "Point",
+    "MultiPoint",
+    "LineString",
+    "MultiLineString",
+    "Polygon",
+    "MultiPolygon",
+    "GeometryCollection",
+  ]),
+  coordinates: coordinatesSchema.optional(),
+  geometries: z.array(z.unknown()).optional(),
+});
+
+/** JSON-serializable property values (no functions / undefined). */
+const jsonPrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const jsonValue: z.ZodType<unknown> = z.lazy(() =>
+  z.union([jsonPrimitive, z.array(jsonValue), z.record(z.string(), jsonValue)])
+);
+
+export const validateRequest = (schema: z.ZodType) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const validated = await schema.parseAsync({
+      const validated = (await schema.parseAsync({
         body: req.body,
         query: req.query,
         params: req.params,
-      }) as any;
-      
-      // Use Object.defineProperty to override if they are read-only
-      Object.defineProperty(req, 'body', { value: validated.body, configurable: true });
-      Object.defineProperty(req, 'query', { value: validated.query, configurable: true });
-      Object.defineProperty(req, 'params', { value: validated.params, configurable: true });
-      
+      })) as { body?: unknown; query?: unknown; params?: unknown };
+
+      if ("body" in validated) {
+        Object.defineProperty(req, "body", { value: validated.body, configurable: true });
+      }
+      if ("query" in validated) {
+        Object.defineProperty(req, "query", { value: validated.query, configurable: true });
+      }
+      if ("params" in validated) {
+        Object.defineProperty(req, "params", { value: validated.params, configurable: true });
+      }
+
       next();
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: "Validation failed",
-          details: error.issues.map((e: any) => ({
+          details: error.issues.map((e) => ({
             path: e.path.join("."),
             message: e.message,
           })),
@@ -52,19 +88,23 @@ export const loginSchema = z.object({
 export const datasetCreateSchema = z.object({
   body: z.object({
     name: z.string().min(1),
-    color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/).optional(),
+    color: z
+      .string()
+      .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+      .optional(),
     type: z.enum(["points", "grid"]).optional(),
-    data: z.array(z.object({
-      lat: z.number().min(-90).max(90),
-      lng: z.number().min(-180).max(180),
-      value: z.number().optional(),
-      category: z.string().optional(),
-      metadata: z.record(z.string(), z.any()).optional(),
-      geometry: z.object({
-        type: z.string(),
-        coordinates: z.array(z.any()),
-      }).optional(),
-    })).optional(),
+    data: z
+      .array(
+        z.object({
+          lat: z.number().min(-90).max(90),
+          lng: z.number().min(-180).max(180),
+          value: z.number().optional(),
+          category: z.string().optional(),
+          metadata: z.record(z.string(), jsonValue).optional(),
+          geometry: geoJsonGeometrySchema.optional(),
+        })
+      )
+      .optional(),
   }),
 });
 
@@ -73,7 +113,14 @@ export const spatialToolSchema = z.object({
     id: z.string().uuid(),
   }),
   body: z.object({
-    type: z.enum(["aggregation", "buffer", "clustering", "convex_hull", "concave_hull", "voronoi"]),
+    type: z.enum([
+      "aggregation",
+      "buffer",
+      "clustering",
+      "convex_hull",
+      "concave_hull",
+      "voronoi",
+    ]),
     targetGridType: z.enum(["hex", "square"]).optional(),
     gridResolution: z.union([z.number(), z.string()]).optional(),
     aggregationField: z.string().optional(),
@@ -88,25 +135,49 @@ export const spatialToolSchema = z.object({
 export const tileParamsSchema = z.object({
   params: z.object({
     id: z.string().uuid(),
-    z: z.string().regex(/^\d+$/).transform(v => parseInt(v, 10)),
-    x: z.string().regex(/^\d+$/).transform(v => parseInt(v, 10)),
-    y: z.string().regex(/^\d+$/).transform(v => parseInt(v, 10)),
+    z: z
+      .string()
+      .regex(/^\d+$/)
+      .transform((v) => parseInt(v, 10)),
+    x: z
+      .string()
+      .regex(/^\d+$/)
+      .transform((v) => parseInt(v, 10)),
+    y: z
+      .string()
+      .regex(/^\d+$/)
+      .transform((v) => parseInt(v, 10)),
   }),
   query: z.object({
-    min: z.string().optional().transform(v => v ? parseFloat(v) : 0),
-    max: z.string().optional().transform(v => v ? parseFloat(v) : Infinity),
-    cats: z.string().optional().transform(v => v ? v.split(',').filter(Boolean) : []),
-    search: z.string().optional().transform(v => v ? v.toLowerCase() : ""),
+    min: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseFloat(v) : 0)),
+    max: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseFloat(v) : Infinity)),
+    cats: z
+      .string()
+      .optional()
+      .transform((v) => (v ? v.split(",").filter(Boolean) : [])),
+    search: z
+      .string()
+      .optional()
+      .transform((v) => (v ? v.toLowerCase() : "")),
     mode: z.string().optional(),
     gridType: z.enum(["hex", "square"]).optional(),
-    res: z.string().optional().transform(v => v ? parseFloat(v) : undefined),
+    res: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseFloat(v) : undefined)),
   }),
 });
 
 export const workspaceCreateSchema = z.object({
   body: z.object({
     name: z.string().min(1),
-    config: z.record(z.string(), z.any()),
+    config: z.record(z.string(), jsonValue),
   }),
 });
 

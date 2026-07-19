@@ -31,7 +31,7 @@ export default function () {
       const x = xBase + i;
       const y = yBase + j;
       
-      const res = http.get(`${API_URL}/datasets/${DATASET_ID}/tiles/${z}/${x}/${y}.pbf?min=0&max=100&cats=&search=&mode=markers`);
+      const res = http.get(`${API_URL}/api/v1/datasets/${DATASET_ID}/tiles/${z}/${x}/${y}.pbf?min=0&max=100&cats=&search=&mode=markers`);
       
       check(res, {
         'status is 200 or 204': (r) => r.status === 200 || r.status === 204,

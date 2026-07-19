@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useStore } from './useStore'
+import { useStore } from './useStore.ts'
 
 // Mock dependencies that might be used by effects or store logic
 vi.mock('maplibre-gl', () => ({
