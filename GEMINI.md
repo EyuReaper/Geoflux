@@ -109,29 +109,29 @@ npm run dev
 Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 LOC), Zustand store (`frontend/src/store/useStore.ts` ~1137 LOC), PostGIS MVT tiles, Redis cache, Docker/CI, and existing Next Steps (style manager, sliding-window timeline).
 
 
+### P1 — Architecture & Maintainability (RESOLVED)
 
-### P1 — Architecture & Maintainability
+8. ✅ **Monolith index.ts** — Routes split into domain modules (`routes/datasets.ts`, `routes/tiles.ts`, `routes/spatial.ts`, `routes/auth.ts`). Middleware extracted to `middleware/`.
+9. ✅ **Zustand store splitting** — Store split into domain slices: `datasetSlice`, `authSlice`, `mapSlice`, `timelineSlice`, `uiSlice`.
+10. ✅ **API versioning** — All routes namespaced under `/api/v1/` with version prefix.
+11. ✅ **Ownership & RLS** — Dataset ownership middleware enforces `userId` checks; routes require authenticated user for dataset operations.
+12. ✅ **Dead deps & type hygiene** — Removed unused `@types/pg`, `@types/socket.io`, `@types/express-rate-limit`, `@types/geojson-vt`, `geojson-vt`, `vt-pbf`. Moved `@types/pg` to devDependencies.
+13. ✅ **Monorepo workspace** — Root `package.json` with npm workspaces for `frontend` and `backend`; convenience scripts.
+14. ✅ **Type safety** — All catch blocks standardized to `catch (error: unknown)`. ESLint config with `@typescript-eslint/no-explicit-any: "error"`.
 
-8. **Split the backend god-file** ✅ RESOLVED  
-   Extracted routers/services from `index.ts`: `routes/auth`, `routes/datasets`, `routes/tiles`, `routes/workspaces`, `routes/spatial`, plus `services/tileCache`, `services/ingest`, `services/spatial`. `index.ts` is now wiring only (96 lines).
+### P2 — Performance & Data Model (RESOLVED)
 
-9. **Split the frontend Zustand store** ✅ RESOLVED  
-   Sliced into domain stores: `authSlice`, `datasetSlice`, `workspaceSlice`, `mapSlice`, `timelineSlice`, `spatialSlice`, `uiSlice`, with a thin composition layer in `useStore.ts`.
+15. ✅ **Large-dataset path consistency** — Client GeoJSON (local `local-*`) vs server MVT (remote) paths documented and consistent; MapLibre filters handle both correctly.
 
-10. **API layering & versioning** ✅ RESOLVED  
-    Routes prefixed with `/api/v1`. Centralized fetch client in `lib/api.ts` with auth headers, error parsing, retries. No scattered `API_URL` + manual `fetch` across the store.
+16. ✅ **Ingest scale** — Added `.max(100_000, "Maximum 100,000 features per request")` Zod cap on data array; returns clear error on overflow.
 
-11. **Ownership checks as middleware** ✅ RESOLVED  
-    Added `requireDatasetOwner` / `requireWorkspaceOwner` / `requireWorkspaceAccess` middleware in `middleware/ownership.ts`. Applied to all dataset/workspace routes including tiles.
+17. ✅ **Tile pipeline efficiency** — Removed dead `geojson-vt`/`vt-pbf` deps. Added `singleflight()` to prevent cache stampede on Redis misses; tile generation deduplicates concurrent identical requests.
 
-12. **Remove dead dependencies** ✅ RESOLVED  
-    Frontend had no `leaflet`/`react-leaflet` (already clean). Backend: moved `@types/pg` to devDependencies, removed `@types/socket.io` and `@types/express-rate-limit` (both ship their own types). No dual runners found.
+18. ✅ **Spatial analysis memory** — Rewrote spatial service: aggregation, buffer, clustering, convex hull, voronoi all run as PostGIS SQL (no Node feature load). Only concave hull retains Turf.js dependency.
 
-13. **Monorepo / root workspace tooling** ✅ RESOLVED  
-    Added root `package.json` with npm workspaces (`frontend`, `backend`) and convenience scripts: `dev`, `build`, `test`, `lint` (with per-package variants).
+19. ✅ **Feature/timestamp first-class columns** — Added `timestamp DateTime?` column to Feature model with composite index `[datasetId, timestamp]`. Ingest pipeline accepts and stores timestamps. Tile SQL includes timestamp in MVT properties. Export includes timestamp.
 
-14. **Type hygiene** ✅ RESOLVED  
-    No `as any`, `error: any`, or `z.any()` found in source code. Standardized all backend catch blocks to explicit `catch (error: unknown)`. Added ESLint to backend with `@typescript-eslint/no-explicit-any: "error"`. Frontend enforces via `tseslint.configs.recommended`.
+20. ✅ **Export completeness** — Removed `shp` from frontend ExportFormat type and API contract. Only `geojson` and `csv` are advertised (both backend-supported).
 
 ### P2 — Performance & Data Model
 
@@ -175,10 +175,10 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 
 | Phase | Items | Outcome |
 |-------|-------|---------|
-| Hotfix | 1–4, 7 | Bootable, securable deploy |
-| Hardening | 5–6, 11, 26 | Safer eval surface, consistent authz, CI confidence |
-| Structure | 8–10, 12–14 | Faster feature work without regressions |
-| Scale | 15–20 | Real datasets without OOM/429s |
+| Hotfix | ~~1–4, 7~~ | Bootable, securable deploy |
+| Hardening | ~~5–6, 11, 26~~ | Safer eval surface, consistent authz, CI confidence |
+| Structure | ~~8–10, 12–14~~ ✅ | Faster feature work without regressions |
+| Scale | ~~15–20~~ ✅ | Real datasets without OOM/429s |
 | Product | 21–25, 27–30 | Differentiated UX + operational maturity |
 
 ### Design principles to adopt going forward

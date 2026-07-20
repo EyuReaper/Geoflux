@@ -19,6 +19,7 @@ type ExportFeatureRow = {
   properties: Record<string, unknown> | null;
   value: number | null;
   category: string | null;
+  timestamp: Date | null;
 };
 
 router.get("/", authenticateToken, async (req: AuthRequest, res) => {
@@ -104,7 +105,7 @@ router.get(
 
     try {
       const features = (await prisma.$queryRaw`
-        SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
+        SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category, "timestamp"
         FROM "Feature"
         WHERE "datasetId" = ${id}
       `) as ExportFeatureRow[];

@@ -33,19 +33,21 @@ model Dataset {
 }
 
 model Feature {
-  id        String   @id @default(uuid())
-  dataset   Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  id        String    @id @default(uuid())
+  dataset   Dataset   @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   datasetId String
   geometry  Unsupported("geometry(Geometry, 4326)")
   properties Json
-  value     Float?
-  category  String?
-  createdAt DateTime @default(now())
+  value      Float?
+  category   String?
+  timestamp  DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([datasetId])
   @@index([geometry], map: "feature_geometry_idx", type: Gist)
   @@index([datasetId, value])
   @@index([datasetId, category])
+  @@index([datasetId, timestamp])
 }
 
 model Workspace {

@@ -100,10 +100,12 @@ export const datasetCreateSchema = z.object({
           lng: z.number().min(-180).max(180),
           value: z.number().optional(),
           category: z.string().optional(),
+          timestamp: z.union([z.string(), z.number()]).optional(),
           metadata: z.record(z.string(), jsonValue).optional(),
           geometry: geoJsonGeometrySchema.optional(),
         })
       )
+      .max(100_000, "Maximum 100,000 features per request")
       .optional(),
   }),
 });

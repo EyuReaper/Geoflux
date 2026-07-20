@@ -37,7 +37,15 @@ export type SpatialToolResult =
   | { kind: "empty" }
   | { kind: "error"; status: number; message: string };
 
-function toPointSources(rows: SourceFeatureRow[]): PointSource[] {
+/** Load only valid point geometries — used by Turf-based operations. */
+async function loadPointSources(datasetId: string): Promise<PointSource[]> {
+  const rows = await prisma.$queryRaw`
+    SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
+    FROM "Feature"
+    WHERE "datasetId" = ${datasetId}
+      AND geometry IS NOT NULL
+  ` as SourceFeatureRow[];
+
   return rows
     .map((f) => {
       const props = f.properties && typeof f.properties === "object" ? f.properties : {};
@@ -46,14 +54,22 @@ function toPointSources(rows: SourceFeatureRow[]): PointSource[] {
         ? (f.geometry as GeoJSON.Point).coordinates
         : null;
       return {
-        lat: coords ? coords[1] : undefined,
-        lng: coords ? coords[0] : undefined,
+        lat: coords ? coords[1] : undefined as unknown as number,
+        lng: coords ? coords[0] : undefined as unknown as number,
         value: f.value,
         category: f.category,
         metadata: props as Record<string, unknown>,
       };
     })
     .filter((d): d is PointSource => typeof d.lat === "number" && typeof d.lng === "number");
+}
+
+/** Check if a dataset has any features (fast count query). */
+async function datasetHasFeatures(datasetId: string): Promise<boolean> {
+  const result = await prisma.$queryRaw<[{ count: bigint }]>`
+    SELECT COUNT(*) as count FROM "Feature" WHERE "datasetId" = ${datasetId}
+  `;
+  return result[0].count > 0n;
 }
 
 export async function runSpatialTool(
@@ -74,34 +90,14 @@ export async function runSpatialTool(
     customName,
   } = input;
 
-  const featuresFromDb = await prisma.$queryRaw`
-    SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
-    FROM "Feature"
-    WHERE "datasetId" = ${sourceDatasetId}
-  ` as SourceFeatureRow[];
-
-  const sourceData = toPointSources(featuresFromDb);
-
-  if (featuresFromDb.length === 0) {
+  if (!(await datasetHasFeatures(sourceDatasetId))) {
     return { kind: "empty" };
   }
 
-  if (sourceData.length === 0) {
-    return { kind: "error", status: 400, message: "No valid point geometries found in source dataset" };
-  }
-
-  const pointFeatures = sourceData.map((d) =>
-    turf.truncate(
-      turf.cleanCoords(
-        turf.point([d.lng, d.lat], { ...d.metadata, value: d.value })
-      )
-    )
-  ) as Feature<Point>[];
-
-  const pointFC = turf.featureCollection(pointFeatures);
   let resultGeoJson: FeatureCollection;
 
   if (type === "aggregation") {
+    // Already pure PostGIS — skip loading features into Node
     const resolution = parseFloat(String(gridResolution ?? 4));
     const isHex = targetGridType === "hex";
     const gridFn = isHex ? Prisma.raw("ST_HexagonGrid") : Prisma.raw("ST_SquareGrid");
@@ -137,46 +133,95 @@ export async function runSpatialTool(
       })),
     };
   } else if (type === "buffer") {
-    const buffered = pointFeatures
-      .map((p) => {
-        try {
-          return turf.buffer(p, Math.max(0.001, bufferRadius || 5), { units: "kilometers" });
-        } catch (error: unknown) {
-          logger.warn({ err: error, p }, "Buffer failed for point");
-          return null;
-        }
-      })
-      .filter((f): f is NonNullable<typeof f> => f != null);
+    // Push to PostGIS: ST_Buffer(geography, radius_km * 1000)
+    const radiusKm = Math.max(0.001, bufferRadius || 5);
+    const radiusM = radiusKm * 1000;
 
-    if (buffered.length === 0) {
-      return { kind: "error", status: 422, message: "Buffer operation failed for all points" };
+    const rows = await prisma.$queryRaw`
+      SELECT
+        ST_AsGeoJSON(ST_Buffer(geography, ${radiusM}))::json as geometry,
+        "value", "category", "properties"
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+        AND ST_GeometryType(geometry) = 'ST_Point'
+    ` as Array<{ geometry: GeoJSON.Geometry; value: number | null; category: string | null; properties: Record<string, unknown> | null }>;
+
+    if (rows.length === 0) {
+      return { kind: "error", status: 422, message: "Buffer operation failed: no point geometries found" };
     }
-    resultGeoJson = turf.featureCollection(buffered);
+
+    resultGeoJson = {
+      type: "FeatureCollection",
+      features: rows.map((r) => ({
+        type: "Feature" as const,
+        geometry: r.geometry,
+        properties: {
+          value: r.value,
+          category: r.category,
+          ...(r.properties || {}),
+        },
+      })),
+    };
   } else if (type === "clustering") {
-    if (pointFeatures.length < 1) {
+    // Push to PostGIS: ST_ClusterDBSCAN
+    const eps = Math.max(0.001, clusterRadius || 10);
+    const epsDeg = eps / 111.32; // rough km → degrees at equator
+
+    const rows = await prisma.$queryRaw`
+      SELECT
+        ST_AsGeoJSON(geometry)::json as geometry,
+        "value", "category", "properties",
+        ST_ClusterDBSCAN(geometry, ${epsDeg}, 1) OVER () as cluster_id
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+        AND ST_GeometryType(geometry) = 'ST_Point'
+    ` as Array<{ geometry: GeoJSON.Geometry; value: number | null; category: string | null; properties: Record<string, unknown> | null; cluster_id: number | null }>;
+
+    if (rows.length === 0) {
       return { kind: "error", status: 422, message: "At least 1 point required for clustering" };
     }
-    resultGeoJson = turf.clustersDbscan(pointFC, Math.max(0.001, clusterRadius || 10), {
-      units: "kilometers",
-      minPoints: 1,
-    });
+
+    resultGeoJson = {
+      type: "FeatureCollection",
+      features: rows.map((r) => ({
+        type: "Feature" as const,
+        geometry: r.geometry,
+        properties: {
+          value: r.value,
+          category: r.category,
+          cluster: r.cluster_id,
+          ...(r.properties || {}),
+        },
+      })),
+    };
   } else if (type === "convex_hull") {
-    if (pointFeatures.length < 3) {
-      return { kind: "error", status: 422, message: "At least 3 points required for convex hull" };
+    // Push to PostGIS: ST_ConvexHull(ST_Collect(geometry))
+    const rows = await prisma.$queryRaw`
+      SELECT ST_AsGeoJSON(ST_ConvexHull(ST_Collect(geometry)))::json as geometry
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+    ` as Array<{ geometry: GeoJSON.Geometry | null }>;
+
+    const geom = rows[0]?.geometry;
+    if (!geom) {
+      return { kind: "error", status: 422, message: "Convex hull could not be generated (points might be collinear)" };
     }
-    const hull = turf.convex(pointFC);
-    if (!hull) {
-      return {
-        kind: "error",
-        status: 422,
-        message: "Convex hull could not be generated (points might be collinear)",
-      };
-    }
-    resultGeoJson = turf.featureCollection([hull]);
+
+    resultGeoJson = {
+      type: "FeatureCollection",
+      features: [{ type: "Feature" as const, geometry: geom, properties: {} }],
+    };
   } else if (type === "concave_hull") {
-    if (pointFeatures.length < 3) {
+    // PostGIS has no built-in concave hull — use Turf.js
+    const sources = await loadPointSources(sourceDatasetId);
+    if (sources.length < 3) {
       return { kind: "error", status: 422, message: "At least 3 points required for concave hull" };
     }
+
+    const pointFeatures = sources.map((d) =>
+      turf.truncate(turf.cleanCoords(turf.point([d.lng, d.lat], { ...d.metadata, value: d.value })))
+    ) as Feature<Point>[];
+    const pointFC = turf.featureCollection(pointFeatures);
     const maxEdge = Number.isFinite(Number(hullMaxEdge)) ? Math.max(0.001, Number(hullMaxEdge)) : 10;
     const hull = turf.concave(pointFC, { maxEdge, units: "kilometers" });
     if (!hull) {
@@ -188,28 +233,38 @@ export async function runSpatialTool(
     }
     resultGeoJson = turf.featureCollection([hull]);
   } else if (type === "voronoi") {
-    if (pointFeatures.length < 2) {
-      return { kind: "error", status: 422, message: "At least 2 points required for Voronoi tessellation" };
-    }
-    const bbox = turf.bbox(pointFC);
-    const paddingX = Math.max((bbox[2] - bbox[0]) * 0.1, 0.1);
-    const paddingY = Math.max((bbox[3] - bbox[1]) * 0.1, 0.1);
-    const paddedBBox: [number, number, number, number] = [
-      bbox[0] - paddingX,
-      bbox[1] - paddingY,
-      bbox[2] + paddingX,
-      bbox[3] + paddingY,
-    ];
-    try {
-      const voronoi = turf.voronoi(pointFC, { bbox: paddedBBox });
-      if (!voronoi) throw new Error("Turf voronoi returned null");
-      resultGeoJson = voronoi as FeatureCollection;
-    } catch (error: unknown) {
-      logger.error({ err: error }, "Voronoi failed");
+    // Push to PostGIS: ST_VoronoiPolygons(ST_Collect(geometry))
+    const rows = await prisma.$queryRaw`
+      SELECT ST_AsGeoJSON(
+        (ST_VoronoiPolygons(ST_Collect(geometry))).geometry
+      )::json as geometry
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+        AND ST_GeometryType(geometry) = 'ST_Point'
+    ` as Array<{ geometry: GeoJSON.Geometry | null }>;
+
+    if (!rows[0]?.geometry) {
       return {
         kind: "error",
         status: 422,
         message: "Voronoi tessellation failed (ensure points are not all identical)",
+      };
+    }
+
+    // ST_VoronoiPolygons returns a GeometryCollection — extract the polygons
+    const geom = rows[0].geometry;
+    if (geom.type === "GeometryCollection") {
+      const polygons = (geom as GeoJSON.GeometryCollection).geometries.filter(
+        (g) => g.type === "Polygon" || g.type === "MultiPolygon"
+      );
+      resultGeoJson = {
+        type: "FeatureCollection",
+        features: polygons.map((g) => ({ type: "Feature" as const, geometry: g, properties: {} })),
+      };
+    } else {
+      resultGeoJson = {
+        type: "FeatureCollection",
+        features: [{ type: "Feature" as const, geometry: geom, properties: {} }],
       };
     }
   } else {

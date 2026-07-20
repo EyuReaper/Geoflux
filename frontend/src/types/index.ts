@@ -190,7 +190,7 @@ export interface GeoFluxState {
   toggleDatasetVisibility: (id: string) => void
   setActiveDataset: (id: string | null) => void
   setViewportFilteredData: (data: DataPoint[]) => void
-  exportDataset: (id: string, format: 'geojson' | 'csv' | 'shp') => Promise<void>
+  exportDataset: (id: string, format: 'geojson' | 'csv') => Promise<void>
   addTransformation: (name: string, expression: string) => void
   removeTransformation: (id: string) => void
   toggleTransformation: (id: string) => void

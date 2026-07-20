@@ -167,7 +167,7 @@ export async function apiDeleteDataset(id: string, token: string): Promise<void>
 
 export async function apiExportDataset(
   id: string,
-  format: 'geojson' | 'csv' | 'shp',
+  format: 'geojson' | 'csv',
   token: string,
 ): Promise<Blob> {
   const res = await fetch(`${API_V1}/datasets/${id}/export?format=${format}`, {

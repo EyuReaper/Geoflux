@@ -9,6 +9,7 @@ import {
   cacheTile,
   getTileKey,
   touchTileIndex,
+  singleflight,
 } from "../services/tileCache.js";
 import { validateRequest, tileParamsSchema } from "../utils/validation.js";
 import { logger } from "../utils/logger.js";
@@ -63,74 +64,80 @@ router.get(
         return res.send(cachedPbf);
       }
 
-      const filterFragments: unknown[] = [];
-      if (cats.length > 0) {
-        filterFragments.push(Prisma.sql`AND "category" IN (${Prisma.join(cats)})`);
-      }
-      if (search) {
-        filterFragments.push(Prisma.sql`AND "properties"::text ILIKE ${`%${search}%`}`);
-      }
-      const extraFilters =
-        filterFragments.length > 0 ? Prisma.join(filterFragments, " ") : Prisma.empty;
+      const buffer = await singleflight(redisKey, async () => {
+        const filterFragments: unknown[] = [];
+        if (cats.length > 0) {
+          filterFragments.push(Prisma.sql`AND "category" IN (${Prisma.join(cats)})`);
+        }
+        if (search) {
+          filterFragments.push(Prisma.sql`AND "properties"::text ILIKE ${`%${search}%`}`);
+        }
+        const extraFilters =
+          filterFragments.length > 0 ? Prisma.join(filterFragments, " ") : Prisma.empty;
 
-      let result: MvtRow[];
+        let result: MvtRow[];
 
-      if (isAreaMode) {
-        const gridType = req.query.gridType || "hex";
-        const resolution =
-          typeof req.query.res === "number"
-            ? req.query.res
-            : Number(req.query.res) || 0.1 / Math.pow(2, z - 2);
-        const gridFn =
-          gridType === "hex" ? Prisma.raw("ST_HexagonGrid") : Prisma.raw("ST_SquareGrid");
+        if (isAreaMode) {
+          const gridType = req.query.gridType || "hex";
+          const resolution =
+            typeof req.query.res === "number"
+              ? req.query.res
+              : Number(req.query.res) || 0.1 / Math.pow(2, z - 2);
+          const gridFn =
+            gridType === "hex" ? Prisma.raw("ST_HexagonGrid") : Prisma.raw("ST_SquareGrid");
 
-        result = (await prisma.$queryRaw`
-          WITH grid AS (
-            SELECT
-              ${gridFn}(${resolution}, geometry) as geom,
-              "value", "properties"
-            FROM "Feature"
-            WHERE "datasetId" = ${id}
-              AND geometry && ST_TileEnvelope(${z}, ${x}, ${y})
-              AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
-              ${extraFilters}
-          ),
-          mvt_geom AS (
-            SELECT
-              ST_AsMVTGeom(geom, ST_TileEnvelope(${z}, ${x}, ${y}), 4096, 64, true) AS geom,
-              jsonb_build_object('value', SUM("value"), 'count', COUNT(*)) as props
-            FROM grid
-            GROUP BY geom
-          )
-          SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
-        `) as MvtRow[];
-      } else {
-        result = (await prisma.$queryRaw`
-          WITH mvt_geom AS (
-            SELECT
-              ST_AsMVTGeom(geometry, ST_TileEnvelope(${z}, ${x}, ${y}), 4096, 64, true) AS geom,
-              CASE
-                WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category")
-                ELSE jsonb_build_object('value', "value", 'category', "category") || properties
-              END as props
-            FROM "Feature"
-            WHERE "datasetId" = ${id}
-              AND geometry && ST_TileEnvelope(${z}, ${x}, ${y})
-              AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
-              ${extraFilters}
-          )
-          SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
-        `) as MvtRow[];
-      }
+          result = (await prisma.$queryRaw`
+            WITH grid AS (
+              SELECT
+                ${gridFn}(${resolution}, geometry) as geom,
+                "value", "properties"
+              FROM "Feature"
+              WHERE "datasetId" = ${id}
+                AND geometry && ST_TileEnvelope(${z}, ${x}, ${y})
+                AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
+                ${extraFilters}
+            ),
+            mvt_geom AS (
+              SELECT
+                ST_AsMVTGeom(geom, ST_TileEnvelope(${z}, ${x}, ${y}), 4096, 64, true) AS geom,
+                jsonb_build_object('value', SUM("value"), 'count', COUNT(*)) as props
+              FROM grid
+              GROUP BY geom
+            )
+            SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
+          `) as MvtRow[];
+        } else {
+          result = (await prisma.$queryRaw`
+            WITH mvt_geom AS (
+              SELECT
+                ST_AsMVTGeom(geometry, ST_TileEnvelope(${z}, ${x}, ${y}), 4096, 64, true) AS geom,
+                CASE
+                  WHEN properties = '{}'::jsonb THEN jsonb_build_object('value', "value", 'category', "category", 'timestamp', EXTRACT(EPOCH FROM "timestamp") * 1000)
+                  ELSE jsonb_build_object('value', "value", 'category', "category", 'timestamp', EXTRACT(EPOCH FROM "timestamp") * 1000) || properties
+                END as props
+              FROM "Feature"
+              WHERE "datasetId" = ${id}
+                AND geometry && ST_TileEnvelope(${z}, ${x}, ${y})
+                AND ("value" IS NULL OR ("value" >= ${min} AND "value" <= ${max}))
+                ${extraFilters}
+            )
+            SELECT ST_AsMVT(mvt_geom.*, 'geoflux-layer') AS mvt FROM mvt_geom
+          `) as MvtRow[];
+        }
 
-      const buffer = result[0]?.mvt;
+        const tileBuffer = result[0]?.mvt;
+        if (!tileBuffer || tileBuffer.length === 0) {
+          return null;
+        }
 
-      if (!buffer || buffer.length === 0) {
+        touchTileIndex(id, cacheKey);
+        cacheTile(redisKey, tileBuffer);
+        return tileBuffer;
+      });
+
+      if (!buffer) {
         return res.status(204).send();
       }
-
-      touchTileIndex(id, cacheKey);
-      cacheTile(redisKey, buffer);
 
       res.setHeader("Content-Type", "application/x-protobuf");
       res.setHeader("Cache-Control", "private, max-age=60");

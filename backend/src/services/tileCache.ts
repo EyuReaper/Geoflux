@@ -4,6 +4,9 @@ import { logger } from "../utils/logger.js";
 const TILE_CACHE_TTL_MS = 5 * 60 * 1000;
 const TILE_CACHE_MAX_ENTRIES = 128;
 
+/** In-flight tile generation promises — prevents cache stampede. */
+const inflight = new Map<string, Promise<Buffer | null>>();
+
 type TileIndexRecord = {
   createdAt: number;
   lastAccessAt: number;
@@ -18,7 +21,8 @@ export function setupTileCacheInvalidation(): void {
     if (err) logger.error({ err }, "Failed to subscribe to invalidation channel");
   });
 
-  pubsub.on("message", (channel: string, message: string) => {
+  pubsub.on("message", (...args: unknown[]) => {
+    const [channel, message] = args as [string, string];
     if (channel !== getInvalidationChannel()) return;
     try {
       const { type, datasetId } = JSON.parse(message) as { type?: string; datasetId?: string };
@@ -102,6 +106,21 @@ export function cacheTile(redisKey: string, buffer: Buffer): void {
   redis.setex(redisKey, TILE_CACHE_TTL, buffer).catch((error: Error) => {
     logger.error({ err: error }, "Failed to cache tile to Redis");
   });
+}
+
+/**
+ * Singleflight: if a tile key is already being generated, return the same
+ * promise instead of triggering a second PostGIS query.
+ */
+export async function singleflight<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflight.get(key);
+  if (existing) return existing as T;
+
+  const promise = fn().finally(() => {
+    inflight.delete(key);
+  });
+  inflight.set(key, promise as Promise<Buffer | null>);
+  return promise;
 }
 
 export { getTileKey, TILE_CACHE_TTL };
