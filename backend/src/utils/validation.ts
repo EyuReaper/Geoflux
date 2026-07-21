@@ -85,6 +85,9 @@ export const loginSchema = z.object({
   }),
 });
 
+/** Maximum features per request — prevents OOM on ingest. */
+export const MAX_FEATURES_PER_REQUEST = 100_000;
+
 export const datasetCreateSchema = z.object({
   body: z.object({
     name: z.string().min(1),
@@ -105,7 +108,7 @@ export const datasetCreateSchema = z.object({
           geometry: geoJsonGeometrySchema.optional(),
         })
       )
-      .max(100_000, "Maximum 100,000 features per request")
+      .max(MAX_FEATURES_PER_REQUEST, `Maximum ${MAX_FEATURES_PER_REQUEST.toLocaleString()} features per request`)
       .optional(),
   }),
 });
@@ -170,6 +173,11 @@ export const tileParamsSchema = z.object({
     mode: z.string().optional(),
     gridType: z.enum(["hex", "square"]).optional(),
     res: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseFloat(v) : undefined)),
+    /** Temporal filter (ms epoch) — pairs with Feature.timestamp column. */
+    time: z
       .string()
       .optional()
       .transform((v) => (v ? parseFloat(v) : undefined)),

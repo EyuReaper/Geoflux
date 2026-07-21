@@ -160,6 +160,31 @@ const Map = () => {
     prevActiveModes.current = activeModes
     prevMapStyle.current = mapStyle
 
+    //
+    // ── Dual-Mode Rendering Contract ──────────────────────────────────────────
+    // Datasets are rendered in one of two paths:
+    //
+    //   1. Client GeoJSON (isLocalData || isAggregated):
+    //      Data resides in `ds.data[]` on the frontend. Rendered as a
+    //      MapLibre GeoJSON source. Filters (value range, categories, search,
+    //      timeline) are applied client-side via MapLibre setFilter expressions.
+    //      Used for unauthenticated local uploads and in-memory spatial tool
+    //      results (aggregatedGeoJson).
+    //
+    //   2. Server MVT (remote server datasets with empty ds.data):
+    //      Data lives in PostGIS. Rendered as a MapLibre vector tile source
+    //      pointing at the backend `/tiles/:z/:x/:y.pbf` endpoint. The same
+    //      filters are transmitted as URL query params so the server applies
+    //      them in SQL (ST_AsMVT). This path scales to millions of points.
+    //
+    //      CRITICAL: Both paths MUST receive the same filter state to prevent
+    //      visual divergence. When adding a new filter, ensure it is applied
+    //      to BOTH the setFilter expressions below AND the tile URL params.
+    //      See the `params` object sent to apiTileUrlTemplate().
+    //
+    //      TODO: Eventually stream local uploads to the server so the MVT path
+    //      serves all datasets, eliminating path divergence entirely.
+    //
     visibleDatasets.forEach(ds => {
       const sourceId = `geoflux-source-${ds.id}`
       newSourceIds.add(sourceId)
@@ -196,6 +221,11 @@ const Map = () => {
           cats: filters.categories.join(','),
           search: filters.searchQuery
         });
+
+        // Timeline temporal filter — sent to server for MVT SQL filtering
+        if (timeline.startTime !== timeline.endTime) {
+          params.append('time', timeline.currentTime.toString());
+        }
 
         if (isAreaMode) {
           params.append('mode', 'area');

@@ -55,7 +55,14 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: "50mb" }));
+/** Max JSON body bytes. 413 returned when exceeded. */
+const MAX_JSON_BODY_BYTES = 50 * 1024 * 1024;
+
+app.use(express.json({ limit: MAX_JSON_BODY_BYTES }));
+
+/** Skip routes from the general limiter: health, docs, and tile endpoints
+ *  (tiles have their own higher-permissive limiter). */
+const GENERAL_LIMITER_SKIP_PATHS = /^\/(health|openapi\.json|api-docs)|^\/api\/v1\/datasets\/[^/]+\/tiles\//;
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -63,11 +70,7 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
-  skip: (req) =>
-    req.path === "/health" ||
-    req.path.includes("/tiles/") ||
-    req.path.startsWith("/api-docs") ||
-    req.path === "/openapi.json",
+  skip: (req) => GENERAL_LIMITER_SKIP_PATHS.test(req.path),
 });
 app.use(generalLimiter);
 

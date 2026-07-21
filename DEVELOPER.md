@@ -46,7 +46,17 @@ GeoFlux follows a decoupled **Frontend-Backend-Cache-Database** architecture:
 
 ### Use Case 1: High-Volume Point Visualization
 **Scenario:** Visualizing 1 million GPS pings.
-- **How it works:** Data is uploaded via `POST /datasets`. The backend converts coordinates into PostGIS geometries. The frontend uses the `MVT` source in MapLibre for seamless 60fps panning.
+- **How it works:** Data is uploaded via `POST /datasets`. The backend converts coordinates into PostGIS geometries (using parameterized batch inserts or PostgreSQL COPY for large loads). The frontend uses the `MVT` source in MapLibre for seamless 60fps panning.
+
+### Rendering Paths
+GeoFlux supports two rendering paths to balance simplicity and scale:
+
+| Path | When Used | Data Source | Filter Location | Scale |
+|------|-----------|-------------|-----------------|-------|
+| **Client GeoJSON** | Unauthenticated uploads, in-memory spatial tool results | Frontend `ds.data[]` | MapLibre `setFilter` | Small (<10k points) |
+| **Server MVT** | Authenticated API datasets | PostGIS via `ST_AsMVT` | SQL `WHERE` clauses | Large (millions) |
+
+Filter state (value range, categories, search, timeline) is shared between both paths to prevent visual divergence. The tile URL includes all active filters as query parameters so the server applies them in SQL.
 
 ### Use Case 2: Spatial Aggregation (H3/Grid)
 **Scenario:** Summarizing crime data into hexagonal heatmaps.

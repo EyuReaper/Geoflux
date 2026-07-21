@@ -1,5 +1,4 @@
-import * as turf from "@turf/turf";
-import type { Feature, FeatureCollection, Point } from "geojson";
+import type { FeatureCollection } from "geojson";
 import { prisma, Prisma } from "../db.js";
 import { insertFeaturesInBatches } from "./ingest.js";
 import { logger } from "../utils/logger.js";
@@ -16,53 +15,11 @@ export type SpatialToolInput = {
   customName?: string;
 };
 
-type SourceFeatureRow = {
-  geometry: GeoJSON.Geometry;
-  properties: Record<string, unknown> | null;
-  value: number | null;
-  category: string | null;
-};
-
-type PointSource = {
-  lat: number;
-  lng: number;
-  value: number | null;
-  category: string | null;
-  metadata: Record<string, unknown>;
-};
-
 export type SpatialToolResult =
   | { kind: "dataset"; dataset: { id: string; name: string; color: string; type: string; userId: string | null } }
   | { kind: "geojson"; geojson: FeatureCollection }
   | { kind: "empty" }
   | { kind: "error"; status: number; message: string };
-
-/** Load only valid point geometries — used by Turf-based operations. */
-async function loadPointSources(datasetId: string): Promise<PointSource[]> {
-  const rows = await prisma.$queryRaw`
-    SELECT ST_AsGeoJSON(geometry)::json as geometry, properties, value, category
-    FROM "Feature"
-    WHERE "datasetId" = ${datasetId}
-      AND geometry IS NOT NULL
-  ` as SourceFeatureRow[];
-
-  return rows
-    .map((f) => {
-      const props = f.properties && typeof f.properties === "object" ? f.properties : {};
-      const isPoint = f.geometry?.type === "Point";
-      const coords = isPoint && Array.isArray((f.geometry as GeoJSON.Point).coordinates)
-        ? (f.geometry as GeoJSON.Point).coordinates
-        : null;
-      return {
-        lat: coords ? coords[1] : undefined as unknown as number,
-        lng: coords ? coords[0] : undefined as unknown as number,
-        value: f.value,
-        category: f.category,
-        metadata: props as Record<string, unknown>,
-      };
-    })
-    .filter((d): d is PointSource => typeof d.lat === "number" && typeof d.lng === "number");
-}
 
 /** Check if a dataset has any features (fast count query). */
 async function datasetHasFeatures(datasetId: string): Promise<boolean> {
@@ -212,26 +169,31 @@ export async function runSpatialTool(
       features: [{ type: "Feature" as const, geometry: geom, properties: {} }],
     };
   } else if (type === "concave_hull") {
-    // PostGIS has no built-in concave hull — use Turf.js
-    const sources = await loadPointSources(sourceDatasetId);
-    if (sources.length < 3) {
-      return { kind: "error", status: 422, message: "At least 3 points required for concave hull" };
-    }
-
-    const pointFeatures = sources.map((d) =>
-      turf.truncate(turf.cleanCoords(turf.point([d.lng, d.lat], { ...d.metadata, value: d.value })))
-    ) as Feature<Point>[];
-    const pointFC = turf.featureCollection(pointFeatures);
+    // PostGIS ST_ConcaveHull (no need to load features into Node memory)
     const maxEdge = Number.isFinite(Number(hullMaxEdge)) ? Math.max(0.001, Number(hullMaxEdge)) : 10;
-    const hull = turf.concave(pointFC, { maxEdge, units: "kilometers" });
-    if (!hull) {
+    const targetPercent = Math.min(0.99, maxEdge / 100);
+
+    const rows = await prisma.$queryRaw`
+      SELECT ST_AsGeoJSON(
+        ST_ConcaveHull(ST_Collect(geometry), ${targetPercent}, true)
+      )::json as geometry
+      FROM "Feature"
+      WHERE "datasetId" = ${sourceDatasetId}
+    ` as Array<{ geometry: GeoJSON.Geometry | null }>;
+
+    const geom = rows[0]?.geometry;
+    if (!geom) {
       return {
         kind: "error",
         status: 422,
         message: "Concave hull could not be generated (try increasing max edge or check for sparse data)",
       };
     }
-    resultGeoJson = turf.featureCollection([hull]);
+
+    resultGeoJson = {
+      type: "FeatureCollection",
+      features: [{ type: "Feature" as const, geometry: geom, properties: {} }],
+    };
   } else if (type === "voronoi") {
     // Push to PostGIS: ST_VoronoiPolygons(ST_Collect(geometry))
     const rows = await prisma.$queryRaw`

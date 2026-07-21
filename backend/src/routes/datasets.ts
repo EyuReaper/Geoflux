@@ -3,7 +3,7 @@ import { prisma } from "../db.js";
 import { authenticateToken } from "../middleware/auth.js";
 import type { AuthRequest } from "../middleware/auth.js";
 import { requireDatasetOwner } from "../middleware/ownership.js";
-import { insertFeaturesInBatches } from "../services/ingest.js";
+import { insertFeaturesInBatches, PayloadTooLargeError } from "../services/ingest.js";
 import { evictDatasetTiles } from "../services/tileCache.js";
 import {
   validateRequest,
@@ -117,7 +117,7 @@ router.get(
             Object.keys(f.properties).forEach((k) => allKeys.add(k));
           }
         });
-        const headerKeys = ["lat", "lng", "value", "category", ...Array.from(allKeys)];
+        const headerKeys = ["lat", "lng", "value", "category", "timestamp", ...Array.from(allKeys)];
 
         const csvRows = [headerKeys.join(",")];
         for (const f of features) {
@@ -128,6 +128,8 @@ router.get(
             if (key === "value") return f.value ?? "";
             if (key === "category")
               return f.category ? `"${f.category.replace(/"/g, '""')}"` : "";
+            if (key === "timestamp")
+              return f.timestamp ? new Date(f.timestamp).toISOString() : "";
             const val = f.properties?.[key];
             if (val === undefined || val === null) return "";
             const valStr = typeof val === "object" ? JSON.stringify(val) : String(val);
@@ -152,6 +154,7 @@ router.get(
           properties: {
             value: f.value,
             category: f.category,
+            timestamp: f.timestamp ? new Date(f.timestamp).toISOString() : null,
             ...(f.properties && typeof f.properties === "object" ? f.properties : {}),
           },
         })),
@@ -205,6 +208,9 @@ router.post(
 
       res.status(201).json(dataset);
     } catch (error: unknown) {
+      if (error instanceof PayloadTooLargeError) {
+        return res.status(413).json({ error: error.message });
+      }
       logger.error({ err: error }, "Dataset creation error");
       res.status(500).json({ error: "Failed to create dataset" });
     }

@@ -11,6 +11,7 @@ vi.mock("../src/utils/redis.js", async (importOriginal) => {
     redis: {
       ping: vi.fn().mockResolvedValue("PONG"),
       get: vi.fn(),
+      set: vi.fn().mockResolvedValue(null),
       setex: vi.fn().mockResolvedValue("OK"),
       del: vi.fn(),
       quit: vi.fn().mockResolvedValue("OK"),

@@ -10,6 +10,7 @@ import {
   getTileKey,
   touchTileIndex,
   singleflight,
+  acquireTileLock,
 } from "../services/tileCache.js";
 import { validateRequest, tileParamsSchema } from "../utils/validation.js";
 import { logger } from "../utils/logger.js";
@@ -52,8 +53,10 @@ router.get(
         typeof req.query.search === "string" ? req.query.search.toLowerCase() : "";
       const mode = typeof req.query.mode === "string" ? req.query.mode : undefined;
       const isAreaMode = mode === "area";
+      const timeVal =
+        typeof req.query.time === "number" ? req.query.time : Number(req.query.time) || 0;
 
-      const cacheKey = `${id}-${isAreaMode ? "area" : "points"}-f:${min}-${max}-${cats.join(".")}-${search}-${req.query.gridType}-${req.query.res}`;
+      const cacheKey = `${id}-${isAreaMode ? "area" : "points"}-f:${min}-${max}-${cats.join(".")}-${search}-${req.query.gridType}-${req.query.res}-t:${timeVal}`;
       const redisKey = getTileKey(id, cacheKey, z, x, y);
 
       const cachedPbf = await getCachedTile(redisKey);
@@ -64,6 +67,18 @@ router.get(
         return res.send(cachedPbf);
       }
 
+      // Distributed lock: prevent cross-instance stampede
+      const lockAcquired = await acquireTileLock(redisKey);
+      if (!lockAcquired) {
+        const waited = await getCachedTile(redisKey);
+        if (waited) {
+          res.setHeader("Content-Type", "application/x-protobuf");
+          res.setHeader("Cache-Control", "private, max-age=60");
+          res.setHeader("X-Cache", "HIT-REDIS-WAIT");
+          return res.send(waited);
+        }
+      }
+
       const buffer = await singleflight(redisKey, async () => {
         const filterFragments: unknown[] = [];
         if (cats.length > 0) {
@@ -71,6 +86,10 @@ router.get(
         }
         if (search) {
           filterFragments.push(Prisma.sql`AND "properties"::text ILIKE ${`%${search}%`}`);
+        }
+        if (timeVal > 0) {
+          const timeDate = new Date(timeVal);
+          filterFragments.push(Prisma.sql`AND ("timestamp" IS NULL OR "timestamp" <= ${timeDate}::timestamptz)`);
         }
         const extraFilters =
           filterFragments.length > 0 ? Prisma.join(filterFragments, " ") : Prisma.empty;

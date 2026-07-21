@@ -4,7 +4,10 @@ import { logger } from "../utils/logger.js";
 const TILE_CACHE_TTL_MS = 5 * 60 * 1000;
 const TILE_CACHE_MAX_ENTRIES = 128;
 
-/** In-flight tile generation promises — prevents cache stampede. */
+/** Distributed lock TTL for tile generation (seconds). */
+const TILE_LOCK_TTL = 30;
+
+/** In-flight tile generation promises — prevents cache stampede in-process. */
 const inflight = new Map<string, Promise<Buffer | null>>();
 
 type TileIndexRecord = {
@@ -109,8 +112,7 @@ export function cacheTile(redisKey: string, buffer: Buffer): void {
 }
 
 /**
- * Singleflight: if a tile key is already being generated, return the same
- * promise instead of triggering a second PostGIS query.
+ * Singleflight (in-process): deduplicates concurrent tile generation for the same key.
  */
 export async function singleflight<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const existing = inflight.get(key);
@@ -121,6 +123,24 @@ export async function singleflight<T>(key: string, fn: () => Promise<T>): Promis
   });
   inflight.set(key, promise as Promise<Buffer | null>);
   return promise;
+}
+
+/**
+ * Distributed tile generation lock using Redis SET NX.
+ * Prevents multiple server instances from generating the same tile simultaneously.
+ * Caller should check the cache again after acquiring the lock (double-check pattern).
+ */
+export async function acquireTileLock(
+  key: string,
+  ttlSeconds = TILE_LOCK_TTL
+): Promise<boolean> {
+  try {
+    const lockKey = `${key}:lock`;
+    const acquired = await redis.set(lockKey, "1", "EX", String(ttlSeconds), "NX");
+    return acquired === "OK";
+  } catch {
+    return false;
+  }
 }
 
 export { getTileKey, TILE_CACHE_TTL };
