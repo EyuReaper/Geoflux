@@ -21,6 +21,7 @@ import authRoutes from "./routes/auth.js";
 import datasetRoutes from "./routes/datasets.js";
 import tileRoutes from "./routes/tiles.js";
 import spatialRoutes from "./routes/spatial.js";
+import uploadRoutes from "./routes/upload.js";
 import workspaceRoutes from "./routes/workspaces.js";
 
 const app = express();
@@ -80,11 +81,13 @@ app.use(docsRoutes);
 const apiV1 = express.Router();
 apiV1.use(authRoutes);
 apiV1.use("/datasets", datasetRoutes);
+apiV1.use("/datasets/upload", uploadRoutes);
 apiV1.use("/datasets/:id/tiles", tileRoutes);
 apiV1.use("/datasets/:id", spatialRoutes);
 apiV1.use("/workspaces", workspaceRoutes);
 app.use("/api/v1", apiV1);
 
+app.set("io", io);
 setupLiveSimulation(io);
 
 app.use(errorHandler);

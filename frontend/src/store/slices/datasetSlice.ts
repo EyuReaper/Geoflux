@@ -7,6 +7,7 @@ import {
   apiCreateDataset,
   apiDeleteDataset,
   apiExportDataset,
+  apiUploadFile,
 } from '../../lib/api.ts'
 import {
   LOCAL_DATASET_PREFIX,

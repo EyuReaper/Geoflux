@@ -17,6 +17,7 @@ import {
 import Papa from "papaparse";
 import { useStore } from "../store/useStore";
 import { cn } from "../lib/utils";
+import { apiUploadFile } from "../lib/api";
 import type { FieldMapping } from "../types";
 import Transformations from "./Transformations";
 
@@ -69,6 +70,7 @@ const Sidebar = () => {
     regionFocus,
     isRegionLoading,
     regionError,
+    auth,
     addDataset,
     removeDataset,
     toggleDatasetVisibility,
@@ -78,6 +80,7 @@ const Sidebar = () => {
     comparisonDatasetIds,
     toggleComparisonDataset,
     exportDataset,
+    fetchDatasets,
   } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [regionQuery, setRegionQuery] = useState("");
@@ -100,9 +103,24 @@ const Sidebar = () => {
     return Array.from(cats);
   }, [data, datasets]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (auth.isAuthenticated) {
+      const fileName = file.name.split(".")[0];
+      try {
+        const result = await apiUploadFile(file, fileName, auth.token!);
+        if ('jobId' in result) {
+          console.log(`Ingest job started: ${result.jobId}`);
+        } else {
+          await fetchDatasets();
+        }
+      } catch (err) {
+        console.error("Failed to upload file", err);
+      }
+      return;
+    }
 
     const reader = new FileReader();
     const fileName = file.name.split(".")[0];

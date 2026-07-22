@@ -165,6 +165,27 @@ export async function apiDeleteDataset(id: string, token: string): Promise<void>
   await request<void>(`/datasets/${id}`, { method: 'DELETE', token, retries: 0 })
 }
 
+export async function apiUploadFile(
+  file: File,
+  name: string,
+  token: string,
+  async_ = false,
+): Promise<{ id: string; name: string; color: string } | { jobId: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", name);
+  if (async_) form.append("async", "true");
+
+  const res = await fetch(`${API_V1}/datasets/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res));
+  if (res.status === 202) return { jobId: (await res.json()).jobId };
+  return res.json();
+}
+
 export async function apiExportDataset(
   id: string,
   format: 'geojson' | 'csv',
