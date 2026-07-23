@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireJwtSecret } from '../utils/security.js';
+import { prisma } from '../db.js';
 
 // Lazy resolve — no fallback secrets. Startup validation lives in index.ts.
 let cachedSecret: string | undefined;
@@ -15,6 +16,7 @@ export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
+    tokenVersion?: number;
   };
   /** Populated by requireDatasetOwner */
   dataset?: {
@@ -67,14 +69,31 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as { id: string; email: string };
-    req.user = decoded;
+    const decoded = jwt.verify(token, getJwtSecret()) as { id: string; email: string; tokenVersion?: number };
+    req.user = { id: decoded.id, email: decoded.email, tokenVersion: decoded.tokenVersion };
     next();
   } catch (error: unknown) {
-    // Missing/weak JWT_SECRET surfaces as a startup/config error, not a 403.
     if (error instanceof Error && error.message.includes('JWT_SECRET')) {
       throw error;
     }
     res.status(403).json({ error: 'Invalid or expired token.' });
+  }
+};
+
+export const requireTokenVersion = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { tokenVersion: true },
+    });
+    if (!user || user.tokenVersion !== (req.user.tokenVersion ?? 0)) {
+      return res.status(403).json({ error: 'Token revoked. Please log in again.' });
+    }
+    next();
+  } catch {
+    res.status(500).json({ error: 'Failed to verify token version' });
   }
 };

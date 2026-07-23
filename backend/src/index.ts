@@ -10,6 +10,12 @@ import { pinoHttp } from "pino-http";
 import { redis } from "./utils/redis.js";
 import { logger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/error.js";
+import {
+  requestIdMiddleware,
+  httpMetricsMiddleware,
+  metricsHandler,
+  structuredErrorHandler,
+} from "./middleware/observability.js";
 import { requireJwtSecret, resolveAllowedOrigins } from "./utils/security.js";
 import { startMaintenanceWorker } from "./utils/cleanup.js";
 import { setupTileCacheInvalidation } from "./services/tileCache.js";
@@ -48,8 +54,10 @@ const port = process.env.PORT || 4000;
 
 setupTileCacheInvalidation();
 
+app.use(requestIdMiddleware);
 app.use(pinoHttp({ logger }));
 app.use(helmet());
+app.use(httpMetricsMiddleware);
 app.use(
   cors({
     origin: allowedOrigins,
@@ -76,6 +84,7 @@ const generalLimiter = rateLimit({
 app.use(generalLimiter);
 
 app.use(healthRoutes);
+app.get("/metrics", metricsHandler);
 app.use(docsRoutes);
 
 const apiV1 = express.Router();
@@ -90,7 +99,7 @@ app.use("/api/v1", apiV1);
 app.set("io", io);
 setupLiveSimulation(io);
 
-app.use(errorHandler);
+app.use(structuredErrorHandler);
 
 if (process.env.NODE_ENV !== "test") {
   httpServer.listen(port, () => {

@@ -556,10 +556,10 @@ const Map = () => {
   }, [updateLayers, isLoaded])
 
   return (
-    <div className="w-full h-full relative bg-[#050505]">
+    <div className="w-full h-full relative bg-[#050505]" role="application" aria-label="Map viewer">
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md z-10">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md z-10" role="alert" aria-busy="true">
           <div className="flex flex-col items-center gap-6">
             <div className="relative">
               <div className="w-16 h-16 border-2 border-cyan-500/20 rounded-full" />
@@ -574,7 +574,7 @@ const Map = () => {
       )}
       
       {/* Map Overlay HUD */}
-      <div className="absolute bottom-8 left-8 z-10 pointer-events-none">
+      <div className="absolute bottom-8 left-8 z-10 pointer-events-none" aria-live="polite" aria-atomic="true">
         <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />

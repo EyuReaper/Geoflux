@@ -31,7 +31,9 @@ const RightPanel = () => {
   ]
 
   return (
-    <aside 
+    <aside
+      aria-label="Style and analysis panel"
+      aria-hidden={!isRightPanelOpen}
       className={cn(
         "fixed right-0 top-16 bottom-0 w-80 bg-black/40 backdrop-blur-xl border-l border-white/10 z-[1000] transition-transform duration-300 ease-in-out",
         !isRightPanelOpen && "translate-x-full"
@@ -109,11 +111,13 @@ const RightPanel = () => {
             <Layers size={14} />
             Visualization Overlays
           </h2>
-          <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
+          <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-xl border border-white/10" role="radiogroup" aria-label="Visualization mode">
             {modes.map((m) => (
               <button
                 key={m.id}
                 onClick={() => toggleMode(m.id)}
+                role="radio"
+                aria-checked={activeModes.includes(m.id)}
                 className={cn(
                   "flex flex-col items-center gap-1.5 py-3 rounded-lg transition-all",
                   activeModes.includes(m.id)
@@ -146,6 +150,7 @@ const RightPanel = () => {
                 value={mapStyle.opacity}
                 onChange={(e) => updateMapStyle({ opacity: parseFloat(e.target.value) })}
                 className="w-full accent-cyan-500"
+                aria-label="Global opacity"
               />
             </div>
 

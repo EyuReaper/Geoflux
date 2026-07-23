@@ -155,6 +155,8 @@ const Sidebar = () => {
 
   return (
     <aside
+      aria-label="Dataset sidebar"
+      aria-hidden={!isSidebarOpen}
       className={cn(
         "fixed left-0 top-16 bottom-0 w-80 bg-[#0a0a0a]/80 backdrop-blur-2xl border-r border-white/5 z-[1000] transition-transform duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]",
         !isSidebarOpen && "-translate-x-full",
@@ -192,6 +194,11 @@ const Sidebar = () => {
               return (
                 <div
                   key={ds.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Dataset: ${ds.name}${activeDatasetId === ds.id ? ' (active)' : ''}`}
+                  aria-current={activeDatasetId === ds.id ? 'true' : undefined}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDataset(ds.id); } }}
                   className={cn(
                     "group relative p-3.5 rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden",
                     activeDatasetId === ds.id
@@ -264,7 +271,7 @@ const Sidebar = () => {
                             ? "bg-orange-500 text-black shadow-lg shadow-orange-500/20"
                             : "bg-white/5 text-white/20 hover:text-white",
                         )}
-                        title="Compare Dataset"
+                        aria-label={`Compare ${ds.name}`}
                       >
                         <GitCompare size={14} />
                       </button>
@@ -274,7 +281,7 @@ const Sidebar = () => {
                           exportDataset(ds.id, 'geojson');
                         }}
                         className="p-2 bg-white/5 hover:bg-white/10 text-white/20 hover:text-cyan-400 rounded-xl transition-all"
-                        title="Quick Export GeoJSON"
+                        aria-label={`Export ${ds.name} as GeoJSON`}
                       >
                         <Download size={14} />
                       </button>
@@ -289,6 +296,7 @@ const Sidebar = () => {
                             ? "bg-white/10 text-cyan-400"
                             : "bg-white/5 text-white/20 hover:text-white",
                         )}
+                        aria-label={ds.isVisible ? `Hide ${ds.name}` : `Show ${ds.name}`}
                       >
                         {ds.isVisible ? (
                           <Eye size={14} />
@@ -302,6 +310,7 @@ const Sidebar = () => {
                           removeDataset(ds.id);
                         }}
                         className="p-2 bg-red-500/0 hover:bg-red-500/10 rounded-xl text-white/20 hover:text-red-400 transition-all"
+                        aria-label={`Remove ${ds.name}`}
                       >
                         <X size={14} />
                       </button>

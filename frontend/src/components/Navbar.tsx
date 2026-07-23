@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Upload, Share2, Activity, LogIn, LogOut, Save } from 'lucide-react'
+import { Upload, Share2, Activity, LogIn, LogOut, Save, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { AuthModal } from './AuthModal'
+import { useReducedMotion } from '../hooks/useReducedMotion'
 
 const Navbar = () => {
   const { isSidebarOpen, toggleSidebar, auth, logout, saveWorkspace } = useStore()
   const [showAuth, setShowAuth] = useState(false)
+  const reducedMotion = useReducedMotion()
 
   const handleSave = () => {
     const name = prompt('Enter workspace name:', `Workspace ${new Date().toLocaleDateString()}`)
@@ -20,8 +22,17 @@ const Navbar = () => {
 
   return (
     <>
-      <nav className="h-16 border-b border-white/10 bg-black/50 backdrop-blur-md px-6 flex items-center justify-between fixed top-0 left-0 right-0 z-[2000]">
+      <nav className="h-16 border-b border-white/10 bg-black/50 backdrop-blur-md px-6 flex items-center justify-between fixed top-0 left-0 right-0 z-[2000]" aria-label="Main navigation">
         <div className="flex items-center gap-3">
+          <button
+            onClick={toggleSidebar}
+            className="p-2 hover:bg-white/5 rounded-lg text-white/40 hover:text-white transition-colors"
+            aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            aria-expanded={isSidebarOpen}
+            aria-controls="dataset-sidebar"
+          >
+            {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
           <div className="w-8 h-8 bg-cyan-500 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
             <Activity className="text-black" size={20} />
           </div>
@@ -58,7 +69,7 @@ const Navbar = () => {
             </button>
           )}
 
-          <div className="h-6 w-px bg-white/10 mx-1" />
+          <div className="h-6 w-px bg-white/10 mx-1" role="separator" />
 
           <button 
             onClick={handleShare}
@@ -71,7 +82,8 @@ const Navbar = () => {
             onClick={() => {
               if (!isSidebarOpen) toggleSidebar();
             }}
-            className="flex items-center gap-2 px-6 py-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-bold transition-all shadow-lg shadow-cyan-500/20"
+            className={`flex items-center gap-2 px-6 py-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-bold transition-all shadow-lg shadow-cyan-500/20 ${reducedMotion ? 'transition-none' : ''}`}
+            aria-label="Upload dataset"
           >
             <Upload size={16} />
             Upload Dataset

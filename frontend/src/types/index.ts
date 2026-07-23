@@ -184,6 +184,8 @@ export interface GeoFluxState {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, name?: string) => Promise<void>
   logout: () => void
+  refreshAuth: () => Promise<void>
+  logoutAll: () => Promise<void>
   fetchDatasets: () => Promise<void>
   addDataset: (name: string, rawData: Record<string, unknown>[]) => void
   removeDataset: (id: string) => void

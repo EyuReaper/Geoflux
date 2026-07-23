@@ -67,7 +67,9 @@ export const createUiSlice: StateCreator<GeoFluxState, [], [], UiSlice> = (set, 
       am: state.activeModes,
       ad: state.activeDatasetId,
       fi: state.filters,
-      tl: state.timeline.currentTime,
+      tl: state.timeline,
+      sl: state.mapStyle,
+      rf: state.regionFocus,
     }
     const encoded = btoa(JSON.stringify(snapshot))
     const url = new URL(window.location.href)
@@ -83,7 +85,9 @@ export const createUiSlice: StateCreator<GeoFluxState, [], [], UiSlice> = (set, 
       if (snapshot.am) set({ activeModes: snapshot.am })
       if (snapshot.ad) get().setActiveDataset(snapshot.ad)
       if (snapshot.fi) set({ filters: { ...get().filters, ...snapshot.fi } })
-      if (snapshot.tl) set({ timeline: { ...get().timeline, currentTime: snapshot.tl } })
+      if (snapshot.tl) set({ timeline: { ...get().timeline, ...snapshot.tl } })
+      if (snapshot.sl) set({ mapStyle: { ...get().mapStyle, ...snapshot.sl } })
+      if (snapshot.rf) set({ regionFocus: snapshot.rf })
     } catch (e) {
       console.error('Failed to apply snapshot', e)
     }

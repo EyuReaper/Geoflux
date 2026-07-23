@@ -109,67 +109,24 @@ npm run dev
 Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 LOC), Zustand store (`frontend/src/store/useStore.ts` ~1137 LOC), PostGIS MVT tiles, Redis cache, Docker/CI, and existing Next Steps (style manager, sliding-window timeline).
 
 
-### P1 — Architecture & Maintainability (RESOLVED)
 
-8. ✅ **Monolith index.ts** — Routes split into domain modules (`routes/datasets.ts`, `routes/tiles.ts`, `routes/spatial.ts`, `routes/auth.ts`). Middleware extracted to `middleware/`.
-9. ✅ **Zustand store splitting** — Store split into domain slices: `datasetSlice`, `authSlice`, `mapSlice`, `timelineSlice`, `uiSlice`.
-10. ✅ **API versioning** — All routes namespaced under `/api/v1/` with version prefix.
-11. ✅ **Ownership & RLS** — Dataset ownership middleware enforces `userId` checks; routes require authenticated user for dataset operations.
-12. ✅ **Dead deps & type hygiene** — Removed unused `@types/pg`, `@types/socket.io`, `@types/express-rate-limit`, `@types/geojson-vt`, `geojson-vt`, `vt-pbf`. Moved `@types/pg` to devDependencies.
-13. ✅ **Monorepo workspace** — Root `package.json` with npm workspaces for `frontend` and `backend`; convenience scripts.
-14. ✅ **Type safety** — All catch blocks standardized to `catch (error: unknown)`. ESLint config with `@typescript-eslint/no-explicit-any: "error"`.
 
-### P2 — Performance & Data Model (RESOLVED)
 
-15. ✅ **Large-dataset path consistency** — Client GeoJSON (local `local-*`) vs server MVT (remote) paths documented and consistent; MapLibre filters handle both correctly.
+### P3 — Product & UX (beyond existing Next Steps) ✅
 
-16. ✅ **Ingest scale** — Added `.max(100_000, "Maximum 100,000 features per request")` Zod cap on data array; returns clear error on overflow.
+21. **Keep planned work** — per-dataset style/legend manager; sliding-window temporal analysis—both remain high value.
 
-17. ✅ **Tile pipeline efficiency** — Removed dead `geojson-vt`/`vt-pbf` deps. Added `singleflight()` to prevent cache stampede on Redis misses; tile generation deduplicates concurrent identical requests.
+22. **Workspace as source of truth** ✅  
+    Workspace save/load expanded: now captures filters, timeline, mapStyleType, regionFocus, datasetIds. Snapshot (deep-link) expanded with mapStyle, timeline, regionFocus. Conflict detection added when datasets are deleted.
 
-18. ✅ **Spatial analysis memory** — Rewrote spatial service: aggregation, buffer, clustering, convex hull, voronoi all run as PostGIS SQL (no Node feature load). Only concave hull retains Turf.js dependency.
+23. **Auth UX & session lifecycle** ✅  
+    Added refresh token rotation (15m access + 7d refresh), logout-all (token versioning), password reset (email with 1h expiry), email verification, change password, /me endpoint. Frontend stores refresh token and supports auto-refresh.
 
-19. ✅ **Feature/timestamp first-class columns** — Added `timestamp DateTime?` column to Feature model with composite index `[datasetId, timestamp]`. Ingest pipeline accepts and stores timestamps. Tile SQL includes timestamp in MVT properties. Export includes timestamp.
+24. **Observability** ✅  
+    Added request IDs (X-Request-Id) end-to-end, structured error codes (AppError + ErrorCodes enum), Prometheus metrics (HTTP latency/throughput, tile latency, tile cache hit ratio, DB query duration, ingest duration) at GET /metrics, and structured error handler with request ID propagation.
 
-20. ✅ **Export completeness** — Removed `shp` from frontend ExportFormat type and API contract. Only `geojson` and `csv` are advertised (both backend-supported).
-
-### P2 — Performance & Data Model
-
-15. **Large-dataset path consistency**  
-    Dual modes (client GeoJSON for local uploads vs server MVT for remote datasets) are powerful but easy to diverge (filters, timeline, styles). Document the contract and share filter builders; eventually stream local uploads to the server so one rendering path (MVT) serves both.
-
-16. **Ingest scale**  
-    50MB JSON body + 1k batch inserts works for demos, not for millions of points. Add: size/feature caps, streaming multipart upload, optional async job + progress events, and PostGIS `COPY` or multi-row insert with prepared statements. Return 413 with clear limits.
-
-17. **Tile pipeline efficiency**  
-    - General rate limit (100/15min) applies globally before tile-specific limits—map browsing may 429 under normal use; exclude `/health` and tile routes from the general limiter.  
-    - In-memory `geojson-vt` path coexists with PostGIS `ST_AsMVT`; clarify which path is production (docs say PostGIS MVT—ensure dead/in-memory code is removed or isolated).  
-    - Cache keys include filter state—good; add cache stampede protection (single-flight already exists for index build; mirror for Redis misses).
-
-18. **Spatial analysis memory**  
-    `/spatial-tool` loads **all** features for a dataset into Node, then Turf. For large sets this will OOM. Push aggregation/buffer/cluster into SQL/PostGIS (or sample + server-side paginated processing) and stream results.
-
-19. **Feature/timestamp first-class columns**  
-    Timeline and temporal filters need efficient queries. If timestamps live only inside `properties` JSON, add a typed `timestamp` column + index on `Feature` for server-side temporal MVT filters (pairs with sliding-window Next Step).
-
-20. **Export completeness**  
-    Store advertises `shp` export; backend implements geojson/csv only. Either implement shapefile (e.g. via GDAL worker) or remove the option from the UI/API contract.
-
-### P3 — Product & UX (beyond existing Next Steps)
-
-21. **Keep planned work** (already in this file): per-dataset style/legend manager; sliding-window temporal analysis—both remain high value.
-
-22. **Workspace as source of truth**  
-    Deep-link snapshots exist; strengthen workspace restore (map view, layers, styles, filters, timeline) and conflict handling when datasets are deleted.
-
-23. **Auth UX & session lifecycle**  
-    JWT-only, 24h, localStorage. Add refresh tokens or short-lived access + httpOnly cookies; logout-all; password reset; optional email verification. Prefer not storing long-lived tokens in `localStorage` if XSS surface is non-trivial (transformations UI increases that surface).
-
-24. **Observability**  
-    Pino + health checks are a good start. Add request IDs end-to-end, structured error codes, Prometheus metrics (tile latency, cache hit rate, ingest duration), and OpenTelemetry traces for MVT SQL.
-
-25. **Accessibility & map chrome**  
-    Keyboard control for timeline, focus traps in modals, ARIA labels on panels, and reduced-motion preference for playback animations.
+25. **Accessibility & map chrome** ✅  
+    Added keyboard controls to timeline (arrow keys step, space plays/pauses), useFocusTrap hook for modals (AuthModal), useReducedMotion hook, ARIA labels on all panels/sidebar/map/navbar/timeline, reduced-motion CSS reset (@media prefers-reduced-motion: reduce), role and aria-* attributes throughout.
 
 ### Suggested priority order (practical)
 

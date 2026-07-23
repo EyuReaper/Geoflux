@@ -98,7 +98,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export type AuthResponse = { token: string; user: AuthState['user'] }
+export type AuthResponse = { token: string; refreshToken: string; user: AuthState['user'] }
 
 export async function apiRegister(email: string, password: string, name?: string): Promise<AuthResponse> {
   return request<AuthResponse>('/register', {
@@ -116,6 +116,77 @@ export async function apiLogin(email: string, password: string): Promise<AuthRes
     body: JSON.stringify({ email, password }),
     retries: 0,
   })
+}
+
+export async function apiRefreshToken(refreshToken: string): Promise<AuthResponse> {
+  return request<AuthResponse>('/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+    retries: 0,
+  })
+}
+
+export async function apiLogout(refreshToken?: string): Promise<void> {
+  return request<void>('/logout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+    retries: 0,
+  })
+}
+
+export async function apiLogoutAll(token: string): Promise<void> {
+  return request<void>('/logout-all', {
+    method: 'POST',
+    token,
+    retries: 0,
+  })
+}
+
+export async function apiForgotPassword(email: string): Promise<void> {
+  return request<void>('/forgot-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+    retries: 0,
+  })
+}
+
+export async function apiResetPassword(token: string, password: string): Promise<void> {
+  return request<void>('/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+    retries: 0,
+  })
+}
+
+export async function apiChangePassword(currentPassword: string, newPassword: string, token: string): Promise<void> {
+  return request<void>('/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+    token,
+    retries: 0,
+  })
+}
+
+export async function apiVerifyEmail(verifyToken: string): Promise<void> {
+  return request<void>('/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: verifyToken }),
+    retries: 0,
+  })
+}
+
+export async function apiResendVerification(token: string): Promise<void> {
+  return request<void>('/resend-verification', { token, retries: 0 })
+}
+
+export async function apiMe(token: string): Promise<AuthState['user']> {
+  return request<AuthState['user']>('/me', { token })
 }
 
 // ── Datasets ──────────────────────────────────────────────────────────────────
