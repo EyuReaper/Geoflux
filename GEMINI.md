@@ -147,3 +147,79 @@ Review based on current codebase: Express monolith (`backend/src/index.ts` ~944 
 - **Thin routes, fat typed services**; UI state sliced by domain.
 
 *Reviewer note: Strengths worth preserving—PostGIS GIST + ST_AsMVT, Redis tile cache + pub/sub eviction, Zod validation, rate limits, helmet, health with dependency probes, workspace sharing concept, and solid map UX foundations. Improvements above aim to turn a strong prototype into a production multi-tenant spatial platform.*
+
+---
+
+## Production Readiness Plan (added 2026-07-30)
+
+Assessment of the current state: auth, rate limiting, helmet, Zod validation, PostGIS/Redis, structured logging, Prometheus metrics, health probes, Docker Compose, and a CI gate (build/lint/test) with a nightly k6 load test are already in place. The gaps below are what stand between this and an actual production deploy — grouped by area, roughly in priority order. Check items off as they land; leave a short note (file/PR) next to each when completed.
+
+**Current estimate: ~65% production-ready.** Blockers to launch vs. hardening that can follow, in order:
+
+- [ ] **Must-fix before launch (closes most of the gap)**
+  - [ ] §5 Redis adapter for `socket.io` — Live Stream is broken the moment you run 2+ backend instances
+  - [ ] §2 Real `deploy` job + chosen hosting target (currently a no-op stub in `ci.yml`)
+  - [ ] §6 Automated, tested PostGIS backup/restore — no backup story today beyond a Compose volume
+  - [ ] §3 Secrets out of `.env` into a real secrets manager
+  - [ ] §4 Error tracking (Sentry) — currently no visibility into exceptions in prod
+  - [ ] §1 Ownership/authorization middleware test coverage — multi-tenant isolation is unverified by tests
+- [ ] **Should-fix soon after launch**
+  - [ ] §1 Broader unit/integration/E2E test coverage + CI coverage gate
+  - [ ] §2 `npm audit`/Dependabot + container image scanning in CI
+  - [ ] §4 Centralized log shipping + Grafana/Alertmanager on top of existing `/metrics`
+  - [ ] §5 Ingest job idempotency under multiple replicas; graceful shutdown
+  - [ ] §3 Upload abuse-scenario audit, CSRF review
+- [ ] **Can follow once traffic justifies it**
+  - [ ] §3 Privacy Policy / ToS / data-retention path
+  - [ ] §4 SLOs + incident runbook, uptime/synthetic monitoring
+  - [ ] §6 DR drill (RPO/RTO), destructive-migration review
+  - [ ] §7 Doc consolidation
+
+### 1. Testing depth
+- [ ] Expand backend test coverage beyond `backend/src/integration.test.ts` — add focused unit/integration tests per route module (`auth`, `datasets`, `tiles`, `upload`, `workspaces`, `spatial`)
+- [ ] Add tests for ownership/authorization middleware (`middleware/ownership.ts`) — verify cross-tenant access is actually denied, not just documented
+- [ ] Add frontend tests beyond `Sidebar.test.tsx` / `useStore.test.ts` — cover Map layer logic, ingestion/field-mapping flow, and timeline filtering
+- [ ] Add at least one end-to-end test (Playwright/Cypress) for the golden path: sign up → upload dataset → view on map → save workspace
+- [ ] Wire coverage reporting into CI and set a minimum threshold so coverage can't silently regress
+- [ ] Refresh `RELEASE_CHECKLIST.md` (currently dated 2026-05-16, predates the P3 work) or retire it in favor of the CI gate
+
+### 2. CI/CD & release automation
+- [ ] Implement the commented-out `deploy` job in `.github/workflows/ci.yml` — pick a real target (see §5) and automate `prisma migrate deploy` + service restart
+- [ ] Add a staging environment that mirrors production, deployed automatically on merge to `master`; promote to production via manual approval or tag
+- [ ] Add `npm audit` (or Dependabot/Renovate) to CI for both `backend` and `frontend`, and enable Dependabot config in `.github/`
+- [ ] Add container image scanning (e.g., Trivy/Grype) for the `backend` and `frontend` Docker images in CI
+- [ ] Define and document a rollback procedure (previous image tag + `prisma migrate resolve`/down migration story)
+
+### 3. Security & compliance
+- [ ] Move secrets (`JWT_SECRET`, `POSTGRES_PASSWORD`, SMTP creds) out of `.env` files into a real secrets manager for prod (Vault, AWS/GCP secrets manager, or platform-native equivalent) — `.env.example` stays dev-only
+- [ ] Add JWT secret/refresh-token rotation runbook (rotate without invalidating all active sessions)
+- [ ] Audit `multer` upload limits (file size/type/count) in `routes/upload.ts` against abuse scenarios (zip bombs, oversized CSV, malformed JSON)
+- [ ] Confirm rate limits in `express-rate-limit` are tuned per-route (auth endpoints stricter than read endpoints) and backed by Redis so limits hold across multiple instances
+- [ ] Add CSRF protection review for any cookie-based auth flows (if refresh tokens are ever moved to cookies)
+- [ ] Write a Privacy Policy / Terms of Service and a data-retention/account-deletion path (multi-tenant product with user data + uploaded datasets)
+- [ ] Run a dependency + secret-scan sweep (`git log` history included) before first public launch
+
+### 4. Observability & operations
+- [ ] Add error tracking (Sentry or equivalent) on both backend and frontend — `/metrics` covers latency/throughput but not exception detail/stack traces
+- [ ] Ship structured logs (pino) to a centralized destination (Loki, CloudWatch, Datadog) instead of stdout-only
+- [ ] Stand up Grafana dashboards + Alertmanager rules on top of the existing `/metrics` Prometheus endpoint (latency SLO breach, tile cache hit-ratio drop, DB pool exhaustion, ingest job failures)
+- [ ] Add uptime/synthetic monitoring against `GET /health` from outside the cluster (e.g., a pinger service)
+- [ ] Define SLOs (API p95 latency, tile p95, uptime target) and document them alongside the on-call/runbook doc
+- [ ] Write a minimal incident runbook: who gets paged, where logs/metrics live, how to roll back a bad deploy
+
+### 5. Scalability & reliability
+- [ ] Add the Redis adapter for `socket.io` (`@socket.io/redis-adapter`) — `backend/src/index.ts` currently runs a bare in-process `Server`, which breaks Live Stream/pub-sub delivery once the backend runs as more than one instance
+- [ ] Verify the ingest job service (`services/ingestJob.ts`) is safe to run with multiple backend replicas (locking/idempotency, not just single-instance assumption)
+- [ ] Load-test beyond the current nightly k6 script with a scenario closer to expected production concurrency (concurrent uploads + tile requests + live sockets together)
+- [ ] Decide and document the real deployment topology (single VM via Compose vs. Kubernetes/ECS with autoscaling) — `DEPLOYMENT.md` currently only documents single-host Compose
+- [ ] Add graceful shutdown handling (drain in-flight requests/sockets, close DB/Redis connections) if not already present in `index.ts`
+
+### 6. Data management
+- [ ] Automate PostGIS backups (scheduled `pg_dump`/WAL archiving) with tested restore procedure — Compose volumes alone are not a backup strategy
+- [ ] Automate Redis persistence verification (AOF is enabled in `docker-compose.yml`; confirm restore-from-AOF is actually tested)
+- [ ] Add a disaster-recovery drill note: RPO/RTO targets and last-tested-restore date
+- [ ] Review Prisma migration history for any destructive migrations that would need special handling in a zero-downtime deploy
+
+### 7. Documentation
+- [ ] Consolidate `DEPLOYMENT.md`, `DEVELOPER.md`, `RELEASE_CHECKLIST.md`, and this plan so there's one canonical "how to ship" doc instead of four overlapping ones
+- [ ] Document the multi-tenancy/ownership model explicitly (who can see/edit what) — useful both for onboarding and for the security audit in §3

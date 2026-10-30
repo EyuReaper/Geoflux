@@ -41,3 +41,4 @@ geoflux-frontend/
 backend/prisma/dev.db
 
 
+node_modules/
